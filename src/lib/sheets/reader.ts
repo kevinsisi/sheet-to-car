@@ -39,7 +39,7 @@ export async function readCarsFromSheet(spreadsheetId: string): Promise<CarRecor
 
   const resp = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: '整合庫存!A1:W1000',
+    range: '整合庫存!A1:AZ1000',
   });
 
   const rows = resp.data.values || [];

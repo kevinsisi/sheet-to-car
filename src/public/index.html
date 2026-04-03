@@ -100,10 +100,13 @@
           <span x-show="!syncing">同步表格</span>
           <span x-show="syncing">同步中...</span>
         </button>
-        <button @click="batchGenerate()" :disabled="batchRunning" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 disabled:opacity-50">
-          <span x-show="!batchRunning">批次生成文案（在庫）</span>
-          <span x-show="batchRunning" x-text="'生成中 ' + (batchProgress?.done || 0) + '/' + (batchProgress?.total || 0)"></span>
-        </button>
+        <div class="flex items-center gap-1">
+          <button @click="batchGenerate()" :disabled="batchRunning" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 disabled:opacity-50">
+            <span x-show="!batchRunning">批次生成文案（在庫）</span>
+            <span x-show="batchRunning" x-text="'生成中 ' + (batchProgress?.done || 0) + '/' + (batchProgress?.total || 0)"></span>
+          </button>
+          <input type="number" x-model.number="batchLimit" min="1" max="50" class="w-14 border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-2 text-xs text-center" title="每批次數量">
+        </div>
         <span class="text-sm text-gray-500 dark:text-gray-400" x-text="`共 ${filteredCars.length} 台`"></span>
         <span x-show="lastUpdated" class="text-xs text-gray-400 dark:text-gray-500" x-text="'更新: ' + lastUpdatedText"></span>
         <span x-show="batchRunning" class="text-xs text-green-600 dark:text-green-400 animate-pulse" x-text="batchProgress?.current || ''"></span>
@@ -355,6 +358,21 @@
           <textarea x-model="systemPrompt" rows="6" placeholder="例如：語氣要更精品感、不要太多 emoji、強調稀缺性..."
             class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-full font-mono"></textarea>
           <button @click="savePrompt()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm mt-2">儲存 Prompt</button>
+
+          <!-- Built-in platform prompts (read-only) -->
+          <div class="mt-6 pt-4 border-t dark:border-gray-700">
+            <h3 class="font-medium mb-2">內建平台規範（唯讀）</h3>
+            <div class="flex gap-2 mb-2">
+              <template x-for="p in ['官網', '8891', 'Facebook']" :key="p">
+                <button @click="showPlatformPrompt = showPlatformPrompt === p ? '' : p"
+                  :class="showPlatformPrompt === p ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'"
+                  class="px-3 py-1 rounded text-xs" x-text="p"></button>
+              </template>
+            </div>
+            <pre x-show="showPlatformPrompt" x-cloak
+              class="bg-gray-50 dark:bg-gray-900 border dark:border-gray-700 rounded-lg p-4 text-xs whitespace-pre-wrap max-h-64 overflow-y-auto font-mono"
+              x-text="platformPrompts[showPlatformPrompt] || ''"></pre>
+          </div>
         </div>
 
         <!-- User Preferences -->
@@ -410,6 +428,11 @@
       </div>
     </div>
   </main>
+
+  <!-- Copy Toast -->
+  <div x-show="copyToast" x-cloak x-transition
+    class="fixed bottom-6 right-6 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm z-50"
+    x-text="copyToast"></div>
 
   <script src="/js/app.js"></script>
 </body>

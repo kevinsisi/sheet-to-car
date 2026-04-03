@@ -4,6 +4,7 @@ import {
   generateCopy, generateAllCopies, getCopies,
   publishCopy, unpublishCopy, deleteCopy, cleanExpiredCopies,
   setUserPreference, getAllPreferences, getTeamMembers, PLATFORMS,
+  getPlatformPrompts,
 } from '../services/copyGenerator';
 import db from '../db/connection';
 
@@ -79,22 +80,27 @@ router.post('/cleanup', (_req: Request, res: Response) => {
 });
 
 // POST /api/copies/batch-generate — scan 在庫 cars without copies and generate all
+// Query: ?limit=10 (default 10, max 50)
 router.post('/batch-generate', async (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
+  const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+
   try {
     const cars = await getCars();
     const inStock = cars.filter(c => c.status === '在庫');
 
-    // Find cars without any copies
+    // Find cars without any copies, limited
     const needGen = inStock.filter(c => {
       const copies = getCopies(c.item);
       return copies.length === 0;
-    });
+    }).slice(0, limit);
 
-    res.write(`data: ${JSON.stringify({ total: needGen.length, phase: 'scan' })}\n\n`);
+    const totalAvailable = inStock.filter(c => getCopies(c.item).length === 0).length;
+
+    res.write(`data: ${JSON.stringify({ total: needGen.length, totalAvailable, phase: 'scan' })}\n\n`);
 
     let done = 0;
     for (const car of needGen) {
@@ -109,7 +115,7 @@ router.post('/batch-generate', async (req: Request, res: Response) => {
       }
     }
 
-    res.write(`data: ${JSON.stringify({ phase: 'complete', done, total: needGen.length })}\n\n`);
+    res.write(`data: ${JSON.stringify({ phase: 'complete', done, total: needGen.length, remaining: totalAvailable - done })}\n\n`);
   } catch (err: any) {
     res.write(`data: ${JSON.stringify({ phase: 'error', error: err.message })}\n\n`);
   }
@@ -143,7 +149,8 @@ router.get('/team/members', (_req: Request, res: Response) => {
 // GET /api/copies/prompt
 router.get('/prompt/current', (_req: Request, res: Response) => {
   const row = db.prepare("SELECT value FROM settings WHERE key = 'system_prompt'").get() as any;
-  return res.json({ prompt: row?.value || '' });
+  const platformPrompts = getPlatformPrompts();
+  return res.json({ prompt: row?.value || '', platformPrompts });
 });
 
 // PUT /api/copies/prompt

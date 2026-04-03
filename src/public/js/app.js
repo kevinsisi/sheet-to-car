@@ -11,6 +11,8 @@ function app() {
     lastUpdated: null,
     batchRunning: false,
     batchProgress: null, // { done, total, current }
+    batchLimit: 10,
+    copyToast: '',
 
     // Expanded car row
     expandedItem: null,
@@ -34,6 +36,8 @@ function app() {
     batchKeyText: '',
     settingsLoaded: false,
     systemPrompt: '',
+    platformPrompts: {},
+    showPlatformPrompt: '',
     userPrefs: {},
     teamMembers: [],
 
@@ -214,7 +218,7 @@ function app() {
       this.batchRunning = true;
       this.batchProgress = { done: 0, total: 0, current: '' };
       try {
-        const resp = await fetch('/api/copies/batch-generate', { method: 'POST' });
+        const resp = await fetch(`/api/copies/batch-generate?limit=${this.batchLimit}`, { method: 'POST' });
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         while (true) {
@@ -246,9 +250,7 @@ function app() {
     async copyToClipboard(text) {
       try {
         await navigator.clipboard.writeText(text);
-        // Brief visual feedback via a temporary class or alert
       } catch {
-        // Fallback
         const ta = document.createElement('textarea');
         ta.value = text;
         document.body.appendChild(ta);
@@ -256,6 +258,8 @@ function app() {
         document.execCommand('copy');
         document.body.removeChild(ta);
       }
+      this.copyToast = '已複製';
+      setTimeout(() => { this.copyToast = ''; }, 1500);
     },
 
     // ── Chat ──
@@ -335,6 +339,7 @@ function app() {
         this.usageStats = await usageResp.json();
         const promptData = await promptResp.json();
         this.systemPrompt = promptData.prompt || '';
+        this.platformPrompts = promptData.platformPrompts || {};
         this.userPrefs = await prefsResp.json();
         const teamData = await teamResp.json();
         this.teamMembers = teamData.members || [];

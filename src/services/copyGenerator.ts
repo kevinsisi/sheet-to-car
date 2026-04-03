@@ -258,4 +258,8 @@ export function getAllPreferences(): Record<string, string> {
   return getUserPreferences();
 }
 
+export function getPlatformPrompts(): Record<string, string> {
+  return { ...PLATFORM_PROMPTS };
+}
+
 export { PLATFORMS, getTeamMembers };
