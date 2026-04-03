@@ -1,0 +1,23 @@
+services:
+  sheet-to-car:
+    build: .
+    container_name: sheet-to-car
+    restart: unless-stopped
+    ports:
+      - "5223:3000"
+    volumes:
+      - sheet-to-car-data:/app/data
+      - ./service-account.json:/app/service-account.json:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - SPREADSHEET_ID=${SPREADSHEET_ID}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  sheet-to-car-data:

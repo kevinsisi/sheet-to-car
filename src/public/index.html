@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>車庫管理</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .status-在庫 { background-color: #f9fafb; }
+    .status-新到貨 { background-color: #fef9c3; }
+    .status-海運中 { background-color: #dbeafe; }
+    .status-驗車中 { background-color: #e0e7ff; }
+    .status-已售出 { background-color: #fecaca; }
+    .status-特殊 { background-color: #f5d0fe; }
+    .chat-bubble { white-space: pre-wrap; word-break: break-word; }
+    .chat-scroll { scroll-behavior: smooth; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="app()" x-init="init()">
+  <!-- Navigation -->
+  <nav class="bg-white shadow-sm border-b">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <h1 class="text-xl font-bold text-gray-800">車庫管理</h1>
+      <div class="flex gap-2">
+        <button @click="view = 'dashboard'" :class="view === 'dashboard' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'" class="px-4 py-2 rounded-lg text-sm font-medium transition">
+          儀表板
+        </button>
+        <button @click="view = 'chat'" :class="view === 'chat' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'" class="px-4 py-2 rounded-lg text-sm font-medium transition">
+          AI 助手
+        </button>
+        <button @click="view = 'settings'" :class="view === 'settings' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'" class="px-4 py-2 rounded-lg text-sm font-medium transition">
+          設定
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-7xl mx-auto px-4 py-6">
+    <!-- Dashboard View -->
+    <div x-show="view === 'dashboard'" x-cloak>
+      <!-- Stats Cards -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-lg shadow p-4">
+          <div class="text-sm text-gray-500">總車輛</div>
+          <div class="text-2xl font-bold" x-text="stats.total || 0"></div>
+        </div>
+        <div class="bg-yellow-50 rounded-lg shadow p-4">
+          <div class="text-sm text-yellow-700">新到貨</div>
+          <div class="text-2xl font-bold text-yellow-700" x-text="stats.byStatus?.['新到貨'] || 0"></div>
+        </div>
+        <div class="bg-green-50 rounded-lg shadow p-4">
+          <div class="text-sm text-green-700">在庫</div>
+          <div class="text-2xl font-bold text-green-700" x-text="stats.byStatus?.['在庫'] || 0"></div>
+        </div>
+        <div class="bg-orange-50 rounded-lg shadow p-4">
+          <div class="text-sm text-orange-700">未PO</div>
+          <div class="text-2xl font-bold text-orange-700" x-text="stats.byPoStatus?.['未PO'] || 0"></div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="bg-white rounded-lg shadow p-4 mb-4 flex flex-wrap gap-3 items-center">
+        <input type="text" x-model="filter.search" @input.debounce.300ms="loadCars()" placeholder="搜尋品牌、型號、VIN..." class="border rounded-lg px-3 py-2 text-sm flex-1 min-w-48">
+        <select x-model="filter.status" @change="loadCars()" class="border rounded-lg px-3 py-2 text-sm">
+          <option value="">全部狀態</option>
+          <option value="在庫">在庫</option>
+          <option value="新到貨">新到貨</option>
+          <option value="海運中">海運中</option>
+          <option value="驗車中">驗車中</option>
+          <option value="已售出">已售出</option>
+          <option value="特殊">特殊</option>
+        </select>
+        <select x-model="filter.poStatus" @change="loadCars()" class="border rounded-lg px-3 py-2 text-sm">
+          <option value="">全部PO</option>
+          <option value="未PO">未PO</option>
+          <option value="部分PO">部分PO</option>
+          <option value="已PO">已PO</option>
+          <option value="不需PO">不需PO</option>
+        </select>
+        <button @click="syncSheet()" :disabled="syncing" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
+          <span x-show="!syncing">同步表格</span>
+          <span x-show="syncing">同步中...</span>
+        </button>
+        <span class="text-sm text-gray-500" x-text="`共 ${filteredCars.length} 台`"></span>
+      </div>
+
+      <!-- Car Table -->
+      <div class="bg-white rounded-lg shadow overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-gray-800 text-white">
+              <th class="px-3 py-2 text-left cursor-pointer" @click="sortBy('item')">Item</th>
+              <th class="px-3 py-2 text-left cursor-pointer" @click="sortBy('brand')">Brand</th>
+              <th class="px-3 py-2 text-left">年式</th>
+              <th class="px-3 py-2 text-left cursor-pointer" @click="sortBy('model')">Model</th>
+              <th class="px-3 py-2 text-left">狀態</th>
+              <th class="px-3 py-2 text-left">外觀色</th>
+              <th class="px-3 py-2 text-left">內裝色</th>
+              <th class="px-3 py-2 text-left">改裝</th>
+              <th class="px-3 py-2 text-left">PO狀態</th>
+              <th class="px-3 py-2 text-left">負責人</th>
+              <th class="px-3 py-2 text-center">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="car in filteredCars" :key="car.item">
+              <tr :class="'status-' + car.status + ' border-b hover:bg-gray-50'">
+                <td class="px-3 py-2 font-mono font-bold" x-text="car.item"></td>
+                <td class="px-3 py-2" x-text="car.brand"></td>
+                <td class="px-3 py-2" x-text="car.year"></td>
+                <td class="px-3 py-2" x-text="car.model"></td>
+                <td class="px-3 py-2">
+                  <span class="px-2 py-0.5 rounded text-xs font-medium"
+                    :class="{
+                      'bg-green-100 text-green-800': car.status === '在庫',
+                      'bg-yellow-100 text-yellow-800': car.status === '新到貨',
+                      'bg-blue-100 text-blue-800': car.status === '海運中',
+                      'bg-indigo-100 text-indigo-800': car.status === '驗車中',
+                      'bg-red-100 text-red-800': car.status === '已售出',
+                      'bg-purple-100 text-purple-800': car.status === '特殊',
+                    }"
+                    x-text="car.status"></span>
+                </td>
+                <td class="px-3 py-2" x-text="car.exteriorColor"></td>
+                <td class="px-3 py-2" x-text="car.interiorColor"></td>
+                <td class="px-3 py-2 text-xs text-gray-600" x-text="car.modification"></td>
+                <td class="px-3 py-2">
+                  <select :value="car.poStatus" @change="updatePo(car.item, $event.target.value)" class="border rounded px-2 py-1 text-xs">
+                    <option value="未PO">未PO</option>
+                    <option value="部分PO">部分PO</option>
+                    <option value="已PO">已PO</option>
+                    <option value="不需PO">不需PO</option>
+                  </select>
+                </td>
+                <td class="px-3 py-2 text-xs" x-text="car.owner"></td>
+                <td class="px-3 py-2 text-center">
+                  <button x-show="car.poStatus !== '已PO'" @click="updatePo(car.item, '已PO')"
+                    class="text-green-600 hover:text-green-800 text-xs font-medium">
+                    PO完成
+                  </button>
+                  <span x-show="car.poStatus === '已PO'" class="text-green-600 text-xs">&#10003;</span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div x-show="filteredCars.length === 0" class="p-8 text-center text-gray-500">
+          <span x-show="loading">載入中...</span>
+          <span x-show="!loading">沒有找到車輛</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chat View -->
+    <div x-show="view === 'chat'" x-cloak class="flex flex-col h-[calc(100vh-140px)]">
+      <div class="bg-white rounded-lg shadow flex-1 flex flex-col overflow-hidden">
+        <!-- Chat messages -->
+        <div class="flex-1 overflow-y-auto p-4 chat-scroll" id="chatMessages">
+          <template x-for="(msg, i) in chatMessages" :key="i">
+            <div :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'" class="mb-3">
+              <div :class="msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'"
+                class="px-4 py-2 rounded-2xl max-w-[80%] chat-bubble text-sm" x-text="msg.content">
+              </div>
+            </div>
+          </template>
+          <div x-show="chatStreaming" class="flex justify-start mb-3">
+            <div class="bg-gray-100 text-gray-800 px-4 py-2 rounded-2xl max-w-[80%] chat-bubble text-sm">
+              <span x-text="streamingText"></span>
+              <span class="animate-pulse">|</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick actions -->
+        <div class="px-4 py-2 border-t flex gap-2 flex-wrap">
+          <button @click="sendChat('統計車子')" class="px-3 py-1 bg-gray-100 rounded-full text-xs hover:bg-gray-200">統計車子</button>
+          <button @click="sendChat('哪些車還沒PO？')" class="px-3 py-1 bg-gray-100 rounded-full text-xs hover:bg-gray-200">未PO清單</button>
+          <button @click="sendChat('今天新到幾台？')" class="px-3 py-1 bg-gray-100 rounded-full text-xs hover:bg-gray-200">新到貨</button>
+          <button @click="sendChat('庫存品牌分佈')" class="px-3 py-1 bg-gray-100 rounded-full text-xs hover:bg-gray-200">品牌分佈</button>
+          <button @click="newChat()" class="px-3 py-1 bg-red-50 text-red-600 rounded-full text-xs hover:bg-red-100 ml-auto">新對話</button>
+        </div>
+
+        <!-- Input -->
+        <div class="p-4 border-t">
+          <form @submit.prevent="sendChat(chatInput)" class="flex gap-2">
+            <input type="text" x-model="chatInput" :disabled="chatStreaming" placeholder="詢問車庫助手..." class="flex-1 border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button type="submit" :disabled="chatStreaming || !chatInput.trim()" class="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
+              發送
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings View -->
+    <div x-show="view === 'settings'" x-cloak>
+      <div class="space-y-6">
+        <!-- Sheets Connection -->
+        <div class="bg-white rounded-lg shadow p-6">
+          <h2 class="text-lg font-bold mb-4">Google Sheets 連線</h2>
+          <div class="flex items-center gap-3 mb-4">
+            <span :class="settingsData.sheetsAuth?.ready ? 'bg-green-500' : 'bg-red-500'" class="w-3 h-3 rounded-full"></span>
+            <span x-text="settingsData.sheetsAuth?.ready ? '已連線 (' + settingsData.sheetsAuth.method + ')' : '未連線'"></span>
+          </div>
+          <div class="flex gap-2">
+            <input type="text" x-model="spreadsheetId" placeholder="Google Spreadsheet ID" class="border rounded-lg px-3 py-2 text-sm flex-1">
+            <button @click="saveSpreadsheetId()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">儲存</button>
+          </div>
+        </div>
+
+        <!-- API Keys -->
+        <div class="bg-white rounded-lg shadow p-6">
+          <h2 class="text-lg font-bold mb-4">Gemini API Keys</h2>
+          <div class="mb-4">
+            <div class="flex gap-2">
+              <input type="text" x-model="newApiKey" placeholder="AIza..." class="border rounded-lg px-3 py-2 text-sm flex-1">
+              <button @click="addKey()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm">新增</button>
+            </div>
+          </div>
+          <div class="mb-4">
+            <textarea x-model="batchKeyText" placeholder="批次匯入（每行一個 key）" rows="3" class="border rounded-lg px-3 py-2 text-sm w-full"></textarea>
+            <button @click="batchImport()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm mt-2">批次匯入</button>
+          </div>
+          <table class="w-full text-sm" x-show="apiKeys.length > 0">
+            <thead>
+              <tr class="border-b">
+                <th class="py-2 text-left">Key (末4碼)</th>
+                <th class="py-2 text-right">今日</th>
+                <th class="py-2 text-right">總計</th>
+                <th class="py-2 text-left">來源</th>
+                <th class="py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="key in apiKeys" :key="key.suffix">
+                <tr class="border-b">
+                  <td class="py-2 font-mono" x-text="'...' + key.suffix"></td>
+                  <td class="py-2 text-right" x-text="key.todayCalls + ' calls'"></td>
+                  <td class="py-2 text-right" x-text="key.totalCalls + ' calls'"></td>
+                  <td class="py-2">
+                    <span x-show="key.fromEnv" class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">ENV</span>
+                    <span x-show="!key.fromEnv" class="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded">DB</span>
+                  </td>
+                  <td class="py-2 text-right">
+                    <button @click="deleteKey(key.suffix)" class="text-red-500 hover:text-red-700 text-xs">刪除</button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div x-show="apiKeys.length === 0" class="text-gray-500 text-sm">尚未設定 API Key</div>
+
+          <!-- Usage Stats -->
+          <div class="mt-6 pt-4 border-t">
+            <h3 class="font-medium mb-2">Token 用量</h3>
+            <div class="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <div class="text-gray-500">今日</div>
+                <div x-text="(usageStats.today?.calls || 0) + ' calls / ' + (usageStats.today?.tokens || 0) + ' tokens'"></div>
+              </div>
+              <div>
+                <div class="text-gray-500">7 天</div>
+                <div x-text="(usageStats.week?.calls || 0) + ' calls / ' + (usageStats.week?.tokens || 0) + ' tokens'"></div>
+              </div>
+              <div>
+                <div class="text-gray-500">30 天</div>
+                <div x-text="(usageStats.month?.calls || 0) + ' calls / ' + (usageStats.month?.tokens || 0) + ' tokens'"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
