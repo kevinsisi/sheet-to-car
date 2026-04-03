@@ -110,6 +110,13 @@
             x-text="'生成勾選 (' + selectedItems.size + ')'"></button>
           <input type="number" x-model.number="batchLimit" min="1" max="50" class="w-14 border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-2 text-xs text-center" title="每批次數量">
         </div>
+        <div x-show="selectedItems.size > 0" class="flex items-center gap-1">
+          <span class="text-xs text-gray-500 dark:text-gray-400">PO:</span>
+          <button @click="batchUpdatePo('已PO')" class="bg-green-600 text-white px-3 py-2 rounded-lg text-xs hover:bg-green-700">已PO</button>
+          <button @click="batchUpdatePo('未PO')" class="bg-gray-500 text-white px-3 py-2 rounded-lg text-xs hover:bg-gray-600">未PO</button>
+          <button @click="batchUpdatePo('部分PO')" class="bg-yellow-500 text-white px-3 py-2 rounded-lg text-xs hover:bg-yellow-600">部分PO</button>
+          <button @click="batchUpdatePo('不需PO')" class="bg-red-500 text-white px-3 py-2 rounded-lg text-xs hover:bg-red-600">不需PO</button>
+        </div>
         <span class="text-sm text-gray-500 dark:text-gray-400" x-text="`共 ${filteredCars.length} 台`"></span>
         <span x-show="lastUpdated" class="text-xs text-gray-400 dark:text-gray-500" x-text="'更新: ' + lastUpdatedText"></span>
         <span x-show="batchRunning" class="text-xs text-green-600 dark:text-green-400 animate-pulse" x-text="batchProgress?.current || ''"></span>
@@ -120,6 +127,9 @@
         <table class="w-full text-sm">
           <thead>
             <tr class="bg-gray-800 dark:bg-gray-950 text-white">
+              <th class="px-1 py-2 w-8">
+                <input type="checkbox" :checked="allSelected" @change="toggleSelectAll()" class="w-3.5 h-3.5 accent-purple-600">
+              </th>
               <th class="px-3 py-2 text-left cursor-pointer" @click="sortBy('item')">Item</th>
               <th class="px-3 py-2 text-left cursor-pointer" @click="sortBy('brand')">Brand</th>
               <th class="px-3 py-2 text-left">年式</th>
@@ -137,7 +147,7 @@
             <template x-for="car in filteredCars" :key="car.item">
               <tr>
                 <!-- Main row -->
-                <td colspan="11" class="p-0">
+                <td colspan="12" class="p-0">
                   <div :class="'status-' + car.status + ' border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center cursor-pointer'" @click="toggleExpand(car.item)">
                     <span class="px-1" @click.stop>
                       <input type="checkbox" :checked="isSelected(car.item)" @change="toggleSelect(car.item)" class="w-3.5 h-3.5 accent-purple-600">

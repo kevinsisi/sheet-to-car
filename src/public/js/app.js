@@ -221,12 +221,44 @@ function app() {
       } else {
         this.selectedItems.add(item);
       }
-      // Force reactivity
       this.selectedItems = new Set(this.selectedItems);
     },
 
     isSelected(item) {
       return this.selectedItems.has(item);
+    },
+
+    toggleSelectAll() {
+      const visible = this.filteredCars.map(c => c.item);
+      const allSelected = visible.every(item => this.selectedItems.has(item));
+      if (allSelected) {
+        visible.forEach(item => this.selectedItems.delete(item));
+      } else {
+        visible.forEach(item => this.selectedItems.add(item));
+      }
+      this.selectedItems = new Set(this.selectedItems);
+    },
+
+    get allSelected() {
+      const visible = this.filteredCars;
+      return visible.length > 0 && visible.every(c => this.selectedItems.has(c.item));
+    },
+
+    async batchUpdatePo(poStatus) {
+      if (this.selectedItems.size === 0) return;
+      const items = [...this.selectedItems];
+      for (const item of items) {
+        try {
+          await fetch(`/api/cars/${item}/po`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ poStatus }),
+          });
+          const car = this.cars.find(c => c.item === item);
+          if (car) car.poStatus = poStatus;
+        } catch {}
+      }
+      await this.loadStats();
     },
 
     async batchGenerate(useSelected = false) {
