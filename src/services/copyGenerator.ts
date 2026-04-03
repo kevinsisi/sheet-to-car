@@ -4,7 +4,7 @@ import { getGeminiModel, trackUsage } from './geminiKeys';
 import { CarRecord } from '../lib/sheets/types';
 import db from '../db/connection';
 
-const PLATFORMS = ['官網', '8891', 'Facebook'] as const;
+const PLATFORMS = ['官網', '8891', 'Facebook', 'post-helper'] as const;
 export type Platform = typeof PLATFORMS[number];
 
 interface TeamMember {
@@ -122,6 +122,35 @@ const PLATFORM_PROMPTS: Record<Platform, string> = {
 
 ## Hashtag 對照
 Rolls-Royce→#勞斯萊斯, Bentley→#賓利, Lamborghini→#藍寶堅尼, Ferrari→#法拉利, Porsche→#保時捷, McLaren→#麥拉倫, Aston Martin→#奧斯頓馬丁, Mercedes-Maybach→#邁巴赫`,
+
+  'post-helper': `你是汽車資料 JSON 生成器，為 Post-Helper Chrome 插件產出可匯入的 JSON。
+
+## 輸出格式
+必須輸出合法 JSON（不要 markdown code block），結構如下：
+{
+  "basic": { "brand": "品牌英文", "model": "完整車型", "year": 數字, "mileage": 里程數字或null, "price": 0 },
+  "specs": { "color": "外觀色", "interiorColor": "內裝色", "engineDisplacement": cc數, "transmission": "automatic/manual/dct", "fuelType": "gasoline/diesel/hybrid/electric", "bodyType": "sedan/suv/coupe/convertible", "doors": 門數, "seats": 座位數, "drivetrain": "AWD/2WD", "horsepower": 馬力, "torque": 扭力Nm },
+  "contact": { "name": "業務姓名", "mobile": "手機", "phone": "02-2794-9910", "lineId": "line_id", "location": { "city": "台北市", "district": "內湖區", "address": "行忠路57號" } },
+  "listing": { "title": "刊登標題", "description": "重點選配條列", "highlightFeatures": ["特色1","特色2"] }
+}
+
+## 規格推斷規則
+- Bentley 沒寫 W12 → V8 (3996cc, 550hp, 770Nm)
+- Rolls-Royce → V12 (6749cc, 563hp, 850Nm)
+- Lamborghini Urus → V8 Twin-Turbo (3996cc, 641hp, 850Nm)
+- Ferrari F8 → V8 Twin-Turbo (3902cc, 720hp, 770Nm)
+- GT/Coupe → bodyType: "coupe", doors: 2
+- SUV/Urus/Cullinan → bodyType: "suv", doors: 5
+- Sedan/Ghost/Flying Spur → bodyType: "sedan", doors: 4
+
+## 變速箱
+Bentley/RR/Benz → "automatic", Lamborghini/Ferrari/Porsche → "dct"
+
+## 注意
+- price 設 0（使用者自填）
+- mileage 用公里數字，無資料設 null
+- 盡可能填寫所有欄位，避免 null
+- 只輸出 JSON，不要其他文字`,
 };
 
 function buildPrompt(car: CarRecord, platform: Platform, member: TeamMember, prefs: Record<string, string>): string {
