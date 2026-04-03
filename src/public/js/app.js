@@ -7,6 +7,7 @@ function app() {
     stats: {},
     filter: { search: '', status: '', poStatus: '' },
     sort: { key: 'item', asc: true },
+    dark: localStorage.getItem('dark') === 'true',
 
     // Chat
     chatMessages: [],
@@ -22,9 +23,21 @@ function app() {
     usageStats: {},
     newApiKey: '',
     batchKeyText: '',
+    settingsLoaded: false,
 
     async init() {
+      this.applyDark();
       await Promise.all([this.loadCars(), this.loadStats()]);
+    },
+
+    toggleDark() {
+      this.dark = !this.dark;
+      localStorage.setItem('dark', this.dark);
+      this.applyDark();
+    },
+
+    applyDark() {
+      document.documentElement.classList.toggle('dark', this.dark);
     },
 
     // ── Dashboard ──
@@ -188,6 +201,7 @@ function app() {
 
         const sid = this.settingsData.settings?.find(s => s.key === 'spreadsheet_id');
         if (sid) this.spreadsheetId = sid.value;
+        this.settingsLoaded = true;
       } catch (err) {
         console.error('Failed to load settings:', err);
       }
@@ -199,7 +213,7 @@ function app() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'spreadsheet_id', value: this.spreadsheetId }),
       });
-      alert('已儲存');
+      await this.loadSettings();
     },
 
     async addKey() {
@@ -214,6 +228,7 @@ function app() {
         if (resp.ok) {
           this.apiKeys = data.keys || [];
           this.newApiKey = '';
+          await this.loadSettings();
         } else {
           alert(data.error);
         }
@@ -233,6 +248,7 @@ function app() {
         const data = await resp.json();
         this.apiKeys = data.keys || [];
         this.batchKeyText = '';
+        await this.loadSettings();
         alert(`已匯入 ${data.totalAdded} 個 key`);
       } catch (err) {
         alert('匯入失敗: ' + err.message);
@@ -244,6 +260,7 @@ function app() {
       const resp = await fetch(`/api/settings/api-keys/${suffix}`, { method: 'DELETE' });
       const data = await resp.json();
       this.apiKeys = data.keys || [];
+      await this.loadSettings();
     },
   };
 }
@@ -252,7 +269,7 @@ function app() {
 document.addEventListener('alpine:init', () => {
   Alpine.effect(() => {
     const appData = Alpine.$data(document.querySelector('[x-data]'));
-    if (appData?.view === 'settings' && appData.apiKeys.length === 0) {
+    if (appData?.view === 'settings' && !appData.settingsLoaded) {
       appData.loadSettings();
     }
   });
