@@ -21,90 +21,21 @@ let batchTask: {
   startedAt: string;
 } = { running: false, done: 0, total: 0, current: '', errors: [], startedAt: '' };
 
-// GET /api/copies/:item — get all copies for a car
-router.get('/:item', (req: Request, res: Response) => {
-  try {
-    const copies = getCopies(req.params.item);
-    return res.json({ copies, item: req.params.item });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+// ══════════════════════════════════════════════════════
+// IMPORTANT: All specific routes MUST come before /:item
+// ══════════════════════════════════════════════════════
 
-// POST /api/copies/:item/generate — generate copy for one or all platforms
-router.post('/:item/generate', async (req: Request, res: Response) => {
-  try {
-    const { platform } = req.body; // optional: '官網' | '8891' | 'Facebook'
-    const cars = await getCars();
-    const car = cars.find(c => c.item === req.params.item);
-    if (!car) return res.status(404).json({ error: `Car ${req.params.item} not found` });
-
-    if (platform && PLATFORMS.includes(platform)) {
-      const content = await generateCopy(car, platform);
-      const copies = getCopies(req.params.item);
-      return res.json({ content, copies, platform });
-    } else {
-      const results = await generateAllCopies(car);
-      const copies = getCopies(req.params.item);
-      return res.json({ results, copies });
-    }
-  } catch (err: any) {
-    console.error('[copies] Generate error:', err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// PATCH /api/copies/:id/publish — set status to 上架 (7-day expiry)
-router.patch('/:id/publish', (req: Request, res: Response) => {
-  try {
-    publishCopy(Number(req.params.id));
-    return res.json({ success: true });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// PATCH /api/copies/:id/unpublish — set back to draft
-router.patch('/:id/unpublish', (req: Request, res: Response) => {
-  try {
-    unpublishCopy(Number(req.params.id));
-    return res.json({ success: true });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE /api/copies/:id
-router.delete('/:id', (req: Request, res: Response) => {
-  try {
-    deleteCopy(Number(req.params.id));
-    return res.json({ success: true });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/copies/cleanup — manually trigger expired copy cleanup
-router.post('/cleanup', (_req: Request, res: Response) => {
-  const count = cleanExpiredCopies();
-  return res.json({ cleaned: count });
-});
-
-// GET /api/copies/batch-status — check if batch is running + capacity info
+// GET /api/copies/batch-status
 router.get('/batch-status', (_req: Request, res: Response) => {
   const keys = getKeyCount();
-  // Each car = 3 API calls (3 platforms). Conservative: max concurrent = keys / 3, min 1
   const maxSelect = Math.max(1, Math.min(Math.floor(keys / 3), 20));
   return res.json({ ...batchTask, maxSelect, keyCount: keys });
 });
 
-// POST /api/copies/batch-generate — scan 在庫 cars without copies and generate all
+// POST /api/copies/batch-generate
 router.post('/batch-generate', async (req: Request, res: Response) => {
   if (batchTask.running) {
-    return res.status(409).json({
-      error: '已有批次任務進行中',
-      ...batchTask,
-    });
+    return res.status(409).json({ error: '已有批次任務進行中', ...batchTask });
   }
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -126,10 +57,7 @@ router.post('/batch-generate', async (req: Request, res: Response) => {
     if (items.length > 0) {
       needGen = inStock.filter(c => items.includes(c.item)).slice(0, limit);
     } else {
-      needGen = [...inStock].reverse().filter(c => {
-        const copies = getCopies(c.item);
-        return copies.length === 0;
-      }).slice(0, limit);
+      needGen = [...inStock].reverse().filter(c => getCopies(c.item).length === 0).slice(0, limit);
     }
 
     const totalAvailable = inStock.filter(c => getCopies(c.item).length === 0).length;
@@ -161,9 +89,13 @@ router.post('/batch-generate', async (req: Request, res: Response) => {
   res.end();
 });
 
-// ── User Preferences ──
+// POST /api/copies/cleanup
+router.post('/cleanup', (_req: Request, res: Response) => {
+  const count = cleanExpiredCopies();
+  return res.json({ cleaned: count });
+});
 
-// GET /api/copies/preferences
+// GET /api/copies/preferences/all
 router.get('/preferences/all', (_req: Request, res: Response) => {
   return res.json(getAllPreferences());
 });
@@ -176,16 +108,12 @@ router.put('/preferences', (req: Request, res: Response) => {
   return res.json({ success: true, key, value });
 });
 
-// ── Team Members ──
-
-// GET /api/copies/team
+// GET /api/copies/team/members
 router.get('/team/members', (_req: Request, res: Response) => {
   return res.json({ members: getTeamMembers() });
 });
 
-// ── Prompt Management ──
-
-// GET /api/copies/prompt
+// GET /api/copies/prompt/current
 router.get('/prompt/current', (_req: Request, res: Response) => {
   const row = db.prepare("SELECT value FROM settings WHERE key = 'system_prompt'").get() as any;
   const platformPrompts = getPlatformPrompts();
@@ -199,6 +127,73 @@ router.put('/prompt', (req: Request, res: Response) => {
     "INSERT INTO settings (key, value, updated_at) VALUES ('system_prompt', ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')"
   ).run(prompt || '');
   return res.json({ success: true });
+});
+
+// ══════════════════════════════════════════════════════
+// Parameterized routes LAST (catch-all patterns)
+// ══════════════════════════════════════════════════════
+
+// GET /api/copies/:item
+router.get('/:item', (req: Request, res: Response) => {
+  try {
+    const copies = getCopies(req.params.item);
+    return res.json({ copies, item: req.params.item });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/copies/:item/generate
+router.post('/:item/generate', async (req: Request, res: Response) => {
+  try {
+    const { platform } = req.body;
+    const cars = await getCars();
+    const car = cars.find(c => c.item === req.params.item);
+    if (!car) return res.status(404).json({ error: `Car ${req.params.item} not found` });
+
+    if (platform && PLATFORMS.includes(platform)) {
+      const content = await generateCopy(car, platform);
+      const copies = getCopies(req.params.item);
+      return res.json({ content, copies, platform });
+    } else {
+      const results = await generateAllCopies(car);
+      const copies = getCopies(req.params.item);
+      return res.json({ results, copies });
+    }
+  } catch (err: any) {
+    console.error('[copies] Generate error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/copies/:id/publish
+router.patch('/:id/publish', (req: Request, res: Response) => {
+  try {
+    publishCopy(Number(req.params.id));
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/copies/:id/unpublish
+router.patch('/:id/unpublish', (req: Request, res: Response) => {
+  try {
+    unpublishCopy(Number(req.params.id));
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/copies/:id
+router.delete('/:id', (req: Request, res: Response) => {
+  try {
+    deleteCopy(Number(req.params.id));
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;
