@@ -78,6 +78,44 @@ router.post('/cleanup', (_req: Request, res: Response) => {
   return res.json({ cleaned: count });
 });
 
+// POST /api/copies/batch-generate — scan 在庫 cars without copies and generate all
+router.post('/batch-generate', async (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  try {
+    const cars = await getCars();
+    const inStock = cars.filter(c => c.status === '在庫');
+
+    // Find cars without any copies
+    const needGen = inStock.filter(c => {
+      const copies = getCopies(c.item);
+      return copies.length === 0;
+    });
+
+    res.write(`data: ${JSON.stringify({ total: needGen.length, phase: 'scan' })}\n\n`);
+
+    let done = 0;
+    for (const car of needGen) {
+      try {
+        res.write(`data: ${JSON.stringify({ item: car.item, brand: car.brand, model: car.model, status: 'generating', done, total: needGen.length })}\n\n`);
+        await generateAllCopies(car);
+        done++;
+        res.write(`data: ${JSON.stringify({ item: car.item, status: 'done', done, total: needGen.length })}\n\n`);
+      } catch (err: any) {
+        done++;
+        res.write(`data: ${JSON.stringify({ item: car.item, status: 'error', error: err.message, done, total: needGen.length })}\n\n`);
+      }
+    }
+
+    res.write(`data: ${JSON.stringify({ phase: 'complete', done, total: needGen.length })}\n\n`);
+  } catch (err: any) {
+    res.write(`data: ${JSON.stringify({ phase: 'error', error: err.message })}\n\n`);
+  }
+  res.end();
+});
+
 // ── User Preferences ──
 
 // GET /api/copies/preferences

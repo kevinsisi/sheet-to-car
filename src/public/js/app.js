@@ -9,6 +9,8 @@ function app() {
     sort: { key: 'item', asc: true },
     dark: localStorage.getItem('dark') === 'true',
     lastUpdated: null,
+    batchRunning: false,
+    batchProgress: null, // { done, total, current }
 
     // Expanded car row
     expandedItem: null,
@@ -206,6 +208,39 @@ function app() {
       if (!confirm('確定刪除？')) return;
       await fetch(`/api/copies/${id}`, { method: 'DELETE' });
       await this.loadCopies(this.expandedItem);
+    },
+
+    async batchGenerate() {
+      this.batchRunning = true;
+      this.batchProgress = { done: 0, total: 0, current: '' };
+      try {
+        const resp = await fetch('/api/copies/batch-generate', { method: 'POST' });
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const text = decoder.decode(value);
+          for (const line of text.split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.phase === 'scan') {
+                this.batchProgress = { done: 0, total: data.total, current: `掃描到 ${data.total} 台待生成` };
+              } else if (data.status === 'generating') {
+                this.batchProgress = { done: data.done, total: data.total, current: `${data.item} ${data.brand} ${data.model}` };
+              } else if (data.status === 'done' || data.status === 'error') {
+                this.batchProgress = { done: data.done, total: data.total, current: this.batchProgress.current };
+              } else if (data.phase === 'complete') {
+                this.batchProgress = { done: data.done, total: data.total, current: '完成' };
+              }
+            } catch {}
+          }
+        }
+      } catch (err) {
+        alert('批次生成失敗: ' + err.message);
+      }
+      this.batchRunning = false;
     },
 
     async copyToClipboard(text) {

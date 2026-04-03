@@ -100,8 +100,13 @@
           <span x-show="!syncing">同步表格</span>
           <span x-show="syncing">同步中...</span>
         </button>
+        <button @click="batchGenerate()" :disabled="batchRunning" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 disabled:opacity-50">
+          <span x-show="!batchRunning">批次生成文案（在庫）</span>
+          <span x-show="batchRunning" x-text="'生成中 ' + (batchProgress?.done || 0) + '/' + (batchProgress?.total || 0)"></span>
+        </button>
         <span class="text-sm text-gray-500 dark:text-gray-400" x-text="`共 ${filteredCars.length} 台`"></span>
         <span x-show="lastUpdated" class="text-xs text-gray-400 dark:text-gray-500" x-text="'更新: ' + lastUpdatedText"></span>
+        <span x-show="batchRunning" class="text-xs text-green-600 dark:text-green-400 animate-pulse" x-text="batchProgress?.current || ''"></span>
       </div>
 
       <!-- Car Table -->
