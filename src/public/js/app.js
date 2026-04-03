@@ -8,6 +8,7 @@ function app() {
     filter: { search: '', status: '', poStatus: '' },
     sort: { key: 'item', asc: true },
     dark: localStorage.getItem('dark') === 'true',
+    lastUpdated: null,
 
     // Chat
     chatMessages: [],
@@ -80,10 +81,18 @@ function app() {
         const resp = await fetch(`/api/cars?${params}`);
         const data = await resp.json();
         this.cars = data.cars || [];
+        this.lastUpdated = new Date();
       } catch (err) {
         console.error('Failed to load cars:', err);
       }
       this.loading = false;
+    },
+
+    get lastUpdatedText() {
+      if (!this.lastUpdated) return '';
+      const d = this.lastUpdated;
+      const pad = n => String(n).padStart(2, '0');
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     },
 
     async loadStats() {
