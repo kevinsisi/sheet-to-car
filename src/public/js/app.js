@@ -10,6 +10,12 @@ function app() {
     dark: localStorage.getItem('dark') === 'true',
     lastUpdated: null,
 
+    // Expanded car row
+    expandedItem: null,
+    expandedCopies: [],
+    generating: false,
+    generatingPlatform: '',
+
     // Chat
     chatMessages: [],
     chatInput: '',
@@ -25,6 +31,9 @@ function app() {
     newApiKey: '',
     batchKeyText: '',
     settingsLoaded: false,
+    systemPrompt: '',
+    userPrefs: {},
+    teamMembers: [],
 
     async init() {
       this.applyDark();
@@ -73,12 +82,17 @@ function app() {
       }
     },
 
+    get lastUpdatedText() {
+      if (!this.lastUpdated) return '';
+      const d = this.lastUpdated;
+      const pad = n => String(n).padStart(2, '0');
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    },
+
     async loadCars() {
       this.loading = true;
       try {
-        const params = new URLSearchParams();
-        if (this.filter.search) params.set('search', this.filter.search);
-        const resp = await fetch(`/api/cars?${params}`);
+        const resp = await fetch('/api/cars');
         const data = await resp.json();
         this.cars = data.cars || [];
         this.lastUpdated = new Date();
@@ -88,20 +102,11 @@ function app() {
       this.loading = false;
     },
 
-    get lastUpdatedText() {
-      if (!this.lastUpdated) return '';
-      const d = this.lastUpdated;
-      const pad = n => String(n).padStart(2, '0');
-      return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    },
-
     async loadStats() {
       try {
         const resp = await fetch('/api/cars/stats');
         this.stats = await resp.json();
-      } catch (err) {
-        console.error('Failed to load stats:', err);
-      }
+      } catch {}
     },
 
     async syncSheet() {
@@ -132,6 +137,89 @@ function app() {
         }
       } catch (err) {
         alert('更新失敗: ' + err.message);
+      }
+    },
+
+    // ── Copy Generation ──
+    async toggleExpand(item) {
+      if (this.expandedItem === item) {
+        this.expandedItem = null;
+        return;
+      }
+      this.expandedItem = item;
+      await this.loadCopies(item);
+    },
+
+    async loadCopies(item) {
+      try {
+        const resp = await fetch(`/api/copies/${item}`);
+        const data = await resp.json();
+        this.expandedCopies = data.copies || [];
+      } catch {}
+    },
+
+    async generateAll(item) {
+      this.generating = true;
+      this.generatingPlatform = '全部';
+      try {
+        await fetch(`/api/copies/${item}/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        await this.loadCopies(item);
+      } catch (err) {
+        alert('生成失敗: ' + err.message);
+      }
+      this.generating = false;
+      this.generatingPlatform = '';
+    },
+
+    async generateOne(item, platform) {
+      this.generating = true;
+      this.generatingPlatform = platform;
+      try {
+        await fetch(`/api/copies/${item}/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform }),
+        });
+        await this.loadCopies(item);
+      } catch (err) {
+        alert('生成失敗: ' + err.message);
+      }
+      this.generating = false;
+      this.generatingPlatform = '';
+    },
+
+    async publishCopy(id) {
+      await fetch(`/api/copies/${id}/publish`, { method: 'PATCH' });
+      await this.loadCopies(this.expandedItem);
+    },
+
+    async unpublishCopy(id) {
+      await fetch(`/api/copies/${id}/unpublish`, { method: 'PATCH' });
+      await this.loadCopies(this.expandedItem);
+    },
+
+    async deleteCopy(id) {
+      if (!confirm('確定刪除？')) return;
+      await fetch(`/api/copies/${id}`, { method: 'DELETE' });
+      await this.loadCopies(this.expandedItem);
+    },
+
+    async copyToClipboard(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        // Brief visual feedback via a temporary class or alert
+      } catch {
+        // Fallback
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
       }
     },
 
@@ -198,15 +286,23 @@ function app() {
     // ── Settings ──
     async loadSettings() {
       try {
-        const [settingsResp, keysResp, usageResp] = await Promise.all([
+        const [settingsResp, keysResp, usageResp, promptResp, prefsResp, teamResp] = await Promise.all([
           fetch('/api/settings'),
           fetch('/api/settings/api-keys'),
           fetch('/api/settings/token-usage'),
+          fetch('/api/copies/prompt/current'),
+          fetch('/api/copies/preferences/all'),
+          fetch('/api/copies/team/members'),
         ]);
         this.settingsData = await settingsResp.json();
         const keysData = await keysResp.json();
         this.apiKeys = keysData.keys || [];
         this.usageStats = await usageResp.json();
+        const promptData = await promptResp.json();
+        this.systemPrompt = promptData.prompt || '';
+        this.userPrefs = await prefsResp.json();
+        const teamData = await teamResp.json();
+        this.teamMembers = teamData.members || [];
 
         const sid = this.settingsData.settings?.find(s => s.key === 'spreadsheet_id');
         if (sid) this.spreadsheetId = sid.value;
@@ -214,6 +310,23 @@ function app() {
       } catch (err) {
         console.error('Failed to load settings:', err);
       }
+    },
+
+    async savePrompt() {
+      await fetch('/api/copies/prompt', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: this.systemPrompt }),
+      });
+    },
+
+    async savePref(key, value) {
+      await fetch('/api/copies/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value }),
+      });
+      this.userPrefs[key] = value;
     },
 
     async saveSpreadsheetId() {
@@ -237,7 +350,6 @@ function app() {
         if (resp.ok) {
           this.apiKeys = data.keys || [];
           this.newApiKey = '';
-          await this.loadSettings();
         } else {
           alert(data.error);
         }
@@ -257,7 +369,6 @@ function app() {
         const data = await resp.json();
         this.apiKeys = data.keys || [];
         this.batchKeyText = '';
-        await this.loadSettings();
         alert(`已匯入 ${data.totalAdded} 個 key`);
       } catch (err) {
         alert('匯入失敗: ' + err.message);
@@ -269,7 +380,6 @@ function app() {
       const resp = await fetch(`/api/settings/api-keys/${suffix}`, { method: 'DELETE' });
       const data = await resp.json();
       this.apiKeys = data.keys || [];
-      await this.loadSettings();
     },
   };
 }

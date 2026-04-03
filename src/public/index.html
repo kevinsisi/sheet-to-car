@@ -124,41 +124,94 @@
           </thead>
           <tbody>
             <template x-for="car in filteredCars" :key="car.item">
-              <tr :class="'status-' + car.status + ' border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50'">
-                <td class="px-3 py-2 font-mono font-bold" x-text="car.item"></td>
-                <td class="px-3 py-2" x-text="car.brand"></td>
-                <td class="px-3 py-2" x-text="car.year"></td>
-                <td class="px-3 py-2" x-text="car.model"></td>
-                <td class="px-3 py-2">
-                  <span class="px-2 py-0.5 rounded text-xs font-medium"
-                    :class="{
-                      'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300': car.status === '在庫',
-                      'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300': car.status === '新到貨',
-                      'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300': car.status === '海運中' || car.status === '海運',
-                      'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300': car.status === '驗車中' || car.status === '驗車' || car.status === '驗車完成',
-                      'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300': car.status === '已售出' || car.status === 'Sold',
-                      'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300': car.status === '特殊',
-                    }"
-                    x-text="car.status"></span>
-                </td>
-                <td class="px-3 py-2" x-text="car.exteriorColor"></td>
-                <td class="px-3 py-2" x-text="car.interiorColor"></td>
-                <td class="px-3 py-2 text-xs text-gray-600 dark:text-gray-400" x-text="car.modification"></td>
-                <td class="px-3 py-2">
-                  <select :value="car.poStatus" @change="updatePo(car.item, $event.target.value)" class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1 text-xs">
-                    <option value="未PO">未PO</option>
-                    <option value="部分PO">部分PO</option>
-                    <option value="已PO">已PO</option>
-                    <option value="不需PO">不需PO</option>
-                  </select>
-                </td>
-                <td class="px-3 py-2 text-xs" x-text="car.owner"></td>
-                <td class="px-3 py-2 text-center">
-                  <button x-show="car.poStatus !== '已PO'" @click="updatePo(car.item, '已PO')"
-                    class="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 text-xs font-medium">
-                    PO完成
-                  </button>
-                  <span x-show="car.poStatus === '已PO'" class="text-green-600 dark:text-green-400 text-xs">&#10003;</span>
+              <tr>
+                <!-- Main row -->
+                <td colspan="11" class="p-0">
+                  <div :class="'status-' + car.status + ' border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center cursor-pointer'" @click="toggleExpand(car.item)">
+                    <span class="px-2 text-gray-400" x-text="expandedItem === car.item ? '&#9660;' : '&#9654;'"></span>
+                    <span class="px-2 py-2 font-mono font-bold w-16" x-text="car.item"></span>
+                    <span class="px-2 py-2 w-28" x-text="car.brand"></span>
+                    <span class="px-2 py-2 w-14" x-text="car.year"></span>
+                    <span class="px-2 py-2 flex-1" x-text="car.model"></span>
+                    <span class="px-2 py-2 w-20">
+                      <span class="px-2 py-0.5 rounded text-xs font-medium"
+                        :class="{
+                          'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300': car.status === '在庫',
+                          'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300': car.status === '新到貨',
+                          'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300': car.status === '海運中' || car.status === '海運',
+                          'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300': car.status === '驗車中' || car.status === '驗車' || car.status === '驗車完成',
+                          'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300': car.status === '已售出' || car.status === 'Sold',
+                          'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300': car.status === '特殊',
+                        }"
+                        x-text="car.status"></span>
+                    </span>
+                    <span class="px-2 py-2 w-16" x-text="car.exteriorColor"></span>
+                    <span class="px-2 py-2 w-16" x-text="car.interiorColor"></span>
+                    <span class="px-2 py-2 w-20 text-xs text-gray-600 dark:text-gray-400" x-text="car.modification"></span>
+                    <span class="px-2 py-2 w-20" @click.stop>
+                      <select :value="car.poStatus" @change="updatePo(car.item, $event.target.value)" class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-1 py-0.5 text-xs">
+                        <option value="未PO">未PO</option>
+                        <option value="部分PO">部分PO</option>
+                        <option value="已PO">已PO</option>
+                        <option value="不需PO">不需PO</option>
+                      </select>
+                    </span>
+                    <span class="px-2 py-2 w-16 text-xs" x-text="car.owner"></span>
+                    <span class="px-2 py-2 w-16 text-center" @click.stop>
+                      <button x-show="car.poStatus !== '已PO'" @click="updatePo(car.item, '已PO')"
+                        class="text-green-600 dark:text-green-400 hover:text-green-800 text-xs font-medium">PO完成</button>
+                      <span x-show="car.poStatus === '已PO'" class="text-green-600 dark:text-green-400 text-xs">&#10003;</span>
+                    </span>
+                  </div>
+                  <!-- Expanded copy panel -->
+                  <div x-show="expandedItem === car.item" x-cloak class="bg-gray-50 dark:bg-gray-900 border-b dark:border-gray-700 p-4">
+                    <div class="flex gap-2 mb-4 items-center">
+                      <span class="text-sm font-medium">文案生成</span>
+                      <button @click.stop="generateAll(car.item)" :disabled="generating"
+                        class="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 disabled:opacity-50">
+                        <span x-show="!generating || generatingPlatform !== '全部'">全部生成</span>
+                        <span x-show="generating && generatingPlatform === '全部'">生成中...</span>
+                      </button>
+                      <button @click.stop="generateOne(car.item, '官網')" :disabled="generating"
+                        class="bg-purple-600 text-white px-3 py-1 rounded text-xs hover:bg-purple-700 disabled:opacity-50">
+                        <span x-show="!generating || generatingPlatform !== '官網'">官網</span>
+                        <span x-show="generating && generatingPlatform === '官網'">...</span>
+                      </button>
+                      <button @click.stop="generateOne(car.item, '8891')" :disabled="generating"
+                        class="bg-orange-600 text-white px-3 py-1 rounded text-xs hover:bg-orange-700 disabled:opacity-50">
+                        <span x-show="!generating || generatingPlatform !== '8891'">8891</span>
+                        <span x-show="generating && generatingPlatform === '8891'">...</span>
+                      </button>
+                      <button @click.stop="generateOne(car.item, 'Facebook')" :disabled="generating"
+                        class="bg-sky-600 text-white px-3 py-1 rounded text-xs hover:bg-sky-700 disabled:opacity-50">
+                        <span x-show="!generating || generatingPlatform !== 'Facebook'">Facebook</span>
+                        <span x-show="generating && generatingPlatform === 'Facebook'">...</span>
+                      </button>
+                    </div>
+                    <!-- Copy list -->
+                    <template x-for="copy in expandedCopies" :key="copy.id">
+                      <div class="mb-3 bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 overflow-hidden">
+                        <div class="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-750 border-b dark:border-gray-700">
+                          <div class="flex items-center gap-2">
+                            <span class="font-medium text-sm" x-text="copy.platform"></span>
+                            <span class="text-xs px-2 py-0.5 rounded"
+                              :class="copy.status === '上架' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'"
+                              x-text="copy.status"></span>
+                            <span x-show="copy.expires_at" class="text-xs text-gray-400" x-text="'到期: ' + (copy.expires_at || '').slice(0,10)"></span>
+                          </div>
+                          <div class="flex gap-2">
+                            <button @click.stop="copyToClipboard(copy.content)" class="text-blue-600 dark:text-blue-400 hover:text-blue-800 text-xs">複製</button>
+                            <button x-show="copy.status === 'draft'" @click.stop="publishCopy(copy.id)" class="text-green-600 dark:text-green-400 text-xs">上架</button>
+                            <button x-show="copy.status === '上架'" @click.stop="unpublishCopy(copy.id)" class="text-yellow-600 dark:text-yellow-400 text-xs">下架</button>
+                            <button @click.stop="deleteCopy(copy.id)" class="text-red-500 dark:text-red-400 text-xs">刪除</button>
+                          </div>
+                        </div>
+                        <pre class="p-4 text-sm whitespace-pre-wrap text-gray-800 dark:text-gray-200 max-h-64 overflow-y-auto" x-text="copy.content"></pre>
+                      </div>
+                    </template>
+                    <div x-show="expandedCopies.length === 0 && !generating" class="text-sm text-gray-500 dark:text-gray-400">尚未生成文案，點擊上方按鈕生成</div>
+                    <div x-show="generating" class="text-sm text-blue-600 dark:text-blue-400 animate-pulse">正在生成文案...</div>
+                  </div>
                 </td>
               </tr>
             </template>
@@ -288,6 +341,66 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- System Prompt -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <h2 class="text-lg font-bold mb-4">System Prompt（額外指示）</h2>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">在這裡加入的指示會套用到所有文案生成。留空則使用預設規範。</p>
+          <textarea x-model="systemPrompt" rows="6" placeholder="例如：語氣要更精品感、不要太多 emoji、強調稀缺性..."
+            class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-full font-mono"></textarea>
+          <button @click="savePrompt()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm mt-2">儲存 Prompt</button>
+        </div>
+
+        <!-- User Preferences -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <h2 class="text-lg font-bold mb-4">文案偏好</h2>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">設定你的偏好，AI 生成文案時會自動套用。也可以在 AI 對話中說「記住我喜歡...」來設定。</p>
+          <div class="space-y-3">
+            <div>
+              <label class="text-sm font-medium block mb-1">語氣偏好</label>
+              <input type="text" :value="userPrefs.tone || ''" @change="savePref('tone', $event.target.value)"
+                placeholder="例如：精品感、沉穩、低調高端"
+                class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-full">
+            </div>
+            <div>
+              <label class="text-sm font-medium block mb-1">風格偏好</label>
+              <input type="text" :value="userPrefs.style || ''" @change="savePref('style', $event.target.value)"
+                placeholder="例如：簡潔有力、氛圍感強"
+                class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-full">
+            </div>
+            <div>
+              <label class="text-sm font-medium block mb-1">自訂規則</label>
+              <textarea :value="userPrefs.custom_rules || ''" @change="savePref('custom_rules', $event.target.value)"
+                rows="3" placeholder="例如：不要用驚嘆號、里程要用公里標示"
+                class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-full"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Team Members -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <h2 class="text-lg font-bold mb-4">業務團隊</h2>
+          <table class="w-full text-sm" x-show="teamMembers.length > 0">
+            <thead>
+              <tr class="border-b dark:border-gray-700">
+                <th class="py-2 text-left">姓名</th>
+                <th class="py-2 text-left">英文名</th>
+                <th class="py-2 text-left">手機</th>
+                <th class="py-2 text-left">Line ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="m in teamMembers" :key="m.english_name">
+                <tr class="border-b dark:border-gray-700">
+                  <td class="py-2" x-text="m.name"></td>
+                  <td class="py-2" x-text="m.english_name"></td>
+                  <td class="py-2 font-mono text-xs" x-text="m.phone"></td>
+                  <td class="py-2 font-mono text-xs" x-text="m.line_id"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

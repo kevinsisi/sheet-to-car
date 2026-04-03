@@ -6,6 +6,8 @@ import { runMigrations } from './db/migrate';
 import apiRouter from './routes/api';
 import chatRouter from './routes/chat';
 import settingsRouter from './routes/settings';
+import copiesRouter from './routes/copies';
+import { cleanExpiredCopies } from './services/copyGenerator';
 
 dotenv.config();
 
@@ -23,6 +25,7 @@ runMigrations();
 app.use('/api', apiRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/settings', settingsRouter);
+app.use('/api/copies', copiesRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -36,4 +39,7 @@ app.get('*', (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Sheet-to-Car running on http://localhost:${PORT}`);
+  // Clean expired copies every hour
+  setInterval(() => cleanExpiredCopies(), 60 * 60 * 1000);
+  cleanExpiredCopies();
 });

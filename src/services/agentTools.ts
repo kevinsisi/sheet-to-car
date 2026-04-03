@@ -1,5 +1,6 @@
 import { SchemaType, FunctionDeclaration } from '@google/generative-ai';
 import { getCars, getStats, setPoStatus } from './carInventory';
+import { generateCopy, generateAllCopies, getCopies, setUserPreference } from './copyGenerator';
 import { CarRecord } from '../lib/sheets/types';
 
 /** Tool definitions for Gemini function calling */
@@ -34,6 +35,30 @@ export const toolDeclarations: FunctionDeclaration[] = [
         poStatus: { type: SchemaType.STRING, description: 'PO狀態：未PO、部分PO、已PO、不需PO' },
       },
       required: ['item', 'poStatus'],
+    },
+  },
+  {
+    name: 'generate_copy',
+    description: '為車輛生成文案。可指定平台（官網、8891、Facebook）或全部生成',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        item: { type: SchemaType.STRING, description: '車輛編號' },
+        platform: { type: SchemaType.STRING, description: '平台：官網、8891、Facebook。不填則全部生成' },
+      },
+      required: ['item'],
+    },
+  },
+  {
+    name: 'remember_preference',
+    description: '記住使用者的偏好設定，例如語氣、風格、自訂規則。下次生成文案時會自動套用',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        key: { type: SchemaType.STRING, description: '偏好類型：tone（語氣）、style（風格）、custom_rules（自訂規則）' },
+        value: { type: SchemaType.STRING, description: '偏好內容' },
+      },
+      required: ['key', 'value'],
     },
   },
 ];
@@ -107,6 +132,31 @@ export async function executeTool(name: string, args: any): Promise<string> {
       return success
         ? `已更新 ${args.item} 的 PO 狀態為「${args.poStatus}」`
         : `找不到車輛 ${args.item}，請確認編號是否正確。`;
+    }
+
+    case 'generate_copy': {
+      if (!args.item) return '需要提供車輛編號。';
+      const allCars = await getCars();
+      const car = allCars.find(c => c.item === args.item);
+      if (!car) return `找不到車輛 ${args.item}`;
+
+      if (args.platform) {
+        const content = await generateCopy(car, args.platform);
+        return `已生成 ${args.platform} 文案：\n\n${content}`;
+      } else {
+        const results = await generateAllCopies(car);
+        let reply = '已生成全部平台文案：\n';
+        for (const [p, c] of Object.entries(results)) {
+          reply += `\n【${p}】\n${c}\n`;
+        }
+        return reply;
+      }
+    }
+
+    case 'remember_preference': {
+      if (!args.key || !args.value) return '需要提供偏好類型和內容。';
+      setUserPreference(args.key, args.value);
+      return `已記住偏好：${args.key} = ${args.value}`;
     }
 
     default:
