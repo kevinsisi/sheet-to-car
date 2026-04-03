@@ -6,9 +6,20 @@ import {
   setUserPreference, getAllPreferences, getTeamMembers, PLATFORMS,
   getPlatformPrompts,
 } from '../services/copyGenerator';
+import { getKeyCount } from '../services/geminiKeys';
 import db from '../db/connection';
 
 const router = Router();
+
+// ── Batch task state (in-memory, survives page refresh) ──
+let batchTask: {
+  running: boolean;
+  done: number;
+  total: number;
+  current: string;
+  errors: string[];
+  startedAt: string;
+} = { running: false, done: 0, total: 0, current: '', errors: [], startedAt: '' };
 
 // GET /api/copies/:item — get all copies for a car
 router.get('/:item', (req: Request, res: Response) => {
@@ -79,15 +90,33 @@ router.post('/cleanup', (_req: Request, res: Response) => {
   return res.json({ cleaned: count });
 });
 
+// GET /api/copies/batch-status — check if batch is running + capacity info
+router.get('/batch-status', (_req: Request, res: Response) => {
+  const keys = getKeyCount();
+  // Each car = 3 API calls (3 platforms). Conservative: max concurrent = keys / 3, min 1
+  const maxSelect = Math.max(1, Math.min(Math.floor(keys / 3), 20));
+  return res.json({ ...batchTask, maxSelect, keyCount: keys });
+});
+
 // POST /api/copies/batch-generate — scan 在庫 cars without copies and generate all
-// Query: ?limit=10 (default 10, max 50)
 router.post('/batch-generate', async (req: Request, res: Response) => {
+  if (batchTask.running) {
+    return res.status(409).json({
+      error: '已有批次任務進行中',
+      ...batchTask,
+    });
+  }
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
-  const limit = Math.min(parseInt(req.query.limit as string) || 5, 50);
-  const items: string[] = req.body?.items || []; // specific items to generate
+  const keys = getKeyCount();
+  const maxByKeys = Math.max(1, Math.min(Math.floor(keys / 3), 20));
+  const limit = Math.min(parseInt(req.query.limit as string) || 5, maxByKeys);
+  const items: string[] = req.body?.items || [];
+
+  batchTask = { running: true, done: 0, total: 0, current: '', errors: [], startedAt: new Date().toISOString() };
 
   try {
     const cars = await getCars();
@@ -95,10 +124,8 @@ router.post('/batch-generate', async (req: Request, res: Response) => {
 
     let needGen;
     if (items.length > 0) {
-      // User selected specific cars to (re)generate
       needGen = inStock.filter(c => items.includes(c.item)).slice(0, limit);
     } else {
-      // Auto: newest cars without copies (reverse order = newest first)
       needGen = [...inStock].reverse().filter(c => {
         const copies = getCopies(c.item);
         return copies.length === 0;
@@ -106,26 +133,31 @@ router.post('/batch-generate', async (req: Request, res: Response) => {
     }
 
     const totalAvailable = inStock.filter(c => getCopies(c.item).length === 0).length;
+    batchTask.total = needGen.length;
 
     res.write(`data: ${JSON.stringify({ total: needGen.length, totalAvailable, phase: 'scan' })}\n\n`);
 
-    let done = 0;
     for (const car of needGen) {
       try {
-        res.write(`data: ${JSON.stringify({ item: car.item, brand: car.brand, model: car.model, status: 'generating', done, total: needGen.length })}\n\n`);
+        batchTask.current = `${car.item} ${car.brand} ${car.model}`;
+        res.write(`data: ${JSON.stringify({ item: car.item, brand: car.brand, model: car.model, status: 'generating', done: batchTask.done, total: needGen.length })}\n\n`);
         await generateAllCopies(car);
-        done++;
-        res.write(`data: ${JSON.stringify({ item: car.item, status: 'done', done, total: needGen.length })}\n\n`);
+        batchTask.done++;
+        res.write(`data: ${JSON.stringify({ item: car.item, status: 'done', done: batchTask.done, total: needGen.length })}\n\n`);
       } catch (err: any) {
-        done++;
-        res.write(`data: ${JSON.stringify({ item: car.item, status: 'error', error: err.message, done, total: needGen.length })}\n\n`);
+        batchTask.done++;
+        batchTask.errors.push(`${car.item}: ${err.message}`);
+        res.write(`data: ${JSON.stringify({ item: car.item, status: 'error', error: err.message, done: batchTask.done, total: needGen.length })}\n\n`);
       }
     }
 
-    res.write(`data: ${JSON.stringify({ phase: 'complete', done, total: needGen.length, remaining: totalAvailable - done })}\n\n`);
+    res.write(`data: ${JSON.stringify({ phase: 'complete', done: batchTask.done, total: needGen.length, remaining: totalAvailable - batchTask.done })}\n\n`);
   } catch (err: any) {
     res.write(`data: ${JSON.stringify({ phase: 'error', error: err.message })}\n\n`);
   }
+
+  batchTask.running = false;
+  batchTask.current = '';
   res.end();
 });
 

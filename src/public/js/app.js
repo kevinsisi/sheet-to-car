@@ -10,8 +10,9 @@ function app() {
     dark: localStorage.getItem('dark') === 'true',
     lastUpdated: null,
     batchRunning: false,
-    batchProgress: null, // { done, total, current }
+    batchProgress: null,
     batchLimit: 5,
+    maxSelect: 20,
     copyToast: '',
     selectedItems: new Set(),
 
@@ -44,7 +45,37 @@ function app() {
 
     async init() {
       this.applyDark();
-      await Promise.all([this.loadCars(), this.loadStats()]);
+      await Promise.all([this.loadCars(), this.loadStats(), this.checkBatchStatus()]);
+    },
+
+    async checkBatchStatus() {
+      try {
+        const resp = await fetch('/api/copies/batch-status');
+        const data = await resp.json();
+        this.maxSelect = data.maxSelect || 20;
+        this.batchLimit = Math.min(this.batchLimit, this.maxSelect);
+        if (data.running) {
+          this.batchRunning = true;
+          this.batchProgress = { done: data.done, total: data.total, current: data.current };
+          // Poll until done
+          this.pollBatchStatus();
+        }
+      } catch {}
+    },
+
+    async pollBatchStatus() {
+      while (this.batchRunning) {
+        await new Promise(r => setTimeout(r, 3000));
+        try {
+          const resp = await fetch('/api/copies/batch-status');
+          const data = await resp.json();
+          this.batchProgress = { done: data.done, total: data.total, current: data.current };
+          if (!data.running) {
+            this.batchRunning = false;
+            this.batchProgress.current = `完成 (${data.errors?.length || 0} 錯誤)`;
+          }
+        } catch { break; }
+      }
     },
 
     toggleDark() {
@@ -219,6 +250,11 @@ function app() {
       if (this.selectedItems.has(item)) {
         this.selectedItems.delete(item);
       } else {
+        if (this.selectedItems.size >= this.maxSelect) {
+          this.copyToast = `最多選取 ${this.maxSelect} 台（依 API key 數量）`;
+          setTimeout(() => { this.copyToast = ''; }, 2000);
+          return;
+        }
         this.selectedItems.add(item);
       }
       this.selectedItems = new Set(this.selectedItems);
@@ -234,7 +270,14 @@ function app() {
       if (allSelected) {
         visible.forEach(item => this.selectedItems.delete(item));
       } else {
-        visible.forEach(item => this.selectedItems.add(item));
+        // Clear first, then add up to maxSelect
+        this.selectedItems = new Set();
+        const toAdd = visible.slice(0, this.maxSelect);
+        toAdd.forEach(item => this.selectedItems.add(item));
+        if (visible.length > this.maxSelect) {
+          this.copyToast = `已選取前 ${this.maxSelect} 台（上限依 API key 數量）`;
+          setTimeout(() => { this.copyToast = ''; }, 2000);
+        }
       }
       this.selectedItems = new Set(this.selectedItems);
     },
@@ -262,6 +305,18 @@ function app() {
     },
 
     async batchGenerate(useSelected = false) {
+      // Check if already running
+      try {
+        const check = await fetch('/api/copies/batch-status');
+        const status = await check.json();
+        if (status.running) {
+          this.batchRunning = true;
+          this.batchProgress = { done: status.done, total: status.total, current: status.current };
+          this.pollBatchStatus();
+          return;
+        }
+      } catch {}
+
       this.batchRunning = true;
       this.batchProgress = { done: 0, total: 0, current: '' };
       const body = {};
