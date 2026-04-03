@@ -96,6 +96,12 @@
           <option value="已PO">已PO</option>
           <option value="不需PO">不需PO</option>
         </select>
+        <select x-model="filter.copyStatus" class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm">
+          <option value="">全部文案</option>
+          <option value="未生成">未生成</option>
+          <option value="部分">部分</option>
+          <option value="完整">完整</option>
+        </select>
         <button @click="syncSheet()" :disabled="syncing" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
           <span x-show="!syncing">同步表格</span>
           <span x-show="syncing">同步中...</span>
@@ -140,6 +146,7 @@
               <th class="px-3 py-2 text-left">改裝</th>
               <th class="px-3 py-2 text-left">PO狀態</th>
               <th class="px-3 py-2 text-left">負責人</th>
+              <th class="px-3 py-2 text-center">文案</th>
               <th class="px-3 py-2 text-center">操作</th>
             </tr>
           </thead>
@@ -147,7 +154,7 @@
             <template x-for="car in filteredCars" :key="car.item">
               <tr>
                 <!-- Main row -->
-                <td colspan="12" class="p-0">
+                <td colspan="13" class="p-0">
                   <div :class="'status-' + car.status + ' border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center cursor-pointer'" @click="toggleExpand(car.item)">
                     <span class="px-1" @click.stop>
                       <input type="checkbox" :checked="isSelected(car.item)" @change="toggleSelect(car.item)" class="w-3.5 h-3.5 accent-purple-600">
@@ -181,6 +188,15 @@
                       </select>
                     </span>
                     <span class="px-2 py-2 w-16 text-xs" x-text="car.owner"></span>
+                    <span class="px-2 py-2 w-14 text-center">
+                      <span class="px-1.5 py-0.5 rounded text-[10px]"
+                        :class="{
+                          'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300': getCopyStatus(car.item) === '完整',
+                          'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300': getCopyStatus(car.item) === '部分',
+                          'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400': getCopyStatus(car.item) === '未生成',
+                        }"
+                        x-text="getCopyStatus(car.item)"></span>
+                    </span>
                     <span class="px-2 py-2 w-16 text-center" @click.stop>
                       <button x-show="car.poStatus !== '已PO'" @click="updatePo(car.item, '已PO')"
                         class="text-green-600 dark:text-green-400 hover:text-green-800 text-xs font-medium">PO完成</button>

@@ -129,6 +129,24 @@ router.put('/prompt', (req: Request, res: Response) => {
   return res.json({ success: true });
 });
 
+// GET /api/copies/summary — copy counts per item (for filtering)
+router.get('/summary/all', (_req: Request, res: Response) => {
+  try {
+    const rows = db.prepare(
+      `SELECT item, COUNT(*) as count,
+       COUNT(DISTINCT platform) as platforms
+       FROM car_copies GROUP BY item`
+    ).all() as any[];
+    const summary: Record<string, { count: number; platforms: number }> = {};
+    for (const row of rows) {
+      summary[row.item] = { count: row.count, platforms: row.platforms };
+    }
+    return res.json(summary);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ══════════════════════════════════════════════════════
 // Parameterized routes LAST (catch-all patterns)
 // ══════════════════════════════════════════════════════

@@ -5,7 +5,8 @@ function app() {
     syncing: false,
     cars: [],
     stats: {},
-    filter: { search: '', status: '', poStatus: '' },
+    filter: { search: '', status: '', poStatus: '', copyStatus: '' },
+    copySummary: {}, // { item: { count, platforms } }
     sort: { key: 'item', asc: true },
     dark: localStorage.getItem('dark') === 'true',
     lastUpdated: null,
@@ -45,7 +46,20 @@ function app() {
 
     async init() {
       this.applyDark();
-      await Promise.all([this.loadCars(), this.loadStats(), this.checkBatchStatus()]);
+      await Promise.all([this.loadCars(), this.loadStats(), this.checkBatchStatus(), this.loadCopySummary()]);
+    },
+
+    async loadCopySummary() {
+      try {
+        const resp = await fetch('/api/copies/summary/all');
+        this.copySummary = await resp.json();
+      } catch {}
+    },
+
+    getCopyStatus(item) {
+      const s = this.copySummary[item];
+      if (!s) return '未生成';
+      return s.platforms >= 4 ? '完整' : '部分';
     },
 
     async checkBatchStatus() {
@@ -93,6 +107,9 @@ function app() {
       let result = [...this.cars];
       if (this.filter.status) result = result.filter(c => c.status === this.filter.status);
       if (this.filter.poStatus) result = result.filter(c => c.poStatus === this.filter.poStatus);
+      if (this.filter.copyStatus) {
+        result = result.filter(c => this.getCopyStatus(c.item) === this.filter.copyStatus);
+      }
       if (this.filter.search) {
         const q = this.filter.search.toLowerCase();
         result = result.filter(c =>
@@ -205,7 +222,7 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({}),
         });
-        await this.loadCopies(item);
+        await Promise.all([this.loadCopies(item), this.loadCopySummary()]);
       } catch (err) {
         alert('生成失敗: ' + err.message);
       }
@@ -222,7 +239,7 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ platform }),
         });
-        await this.loadCopies(item);
+        await Promise.all([this.loadCopies(item), this.loadCopySummary()]);
       } catch (err) {
         alert('生成失敗: ' + err.message);
       }
