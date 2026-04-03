@@ -130,81 +130,96 @@
 
       <!-- Car Table -->
       <div class="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
-        <table class="w-full text-sm">
+        <table class="w-full text-sm table-fixed">
+          <colgroup>
+            <col class="w-8">
+            <col class="w-16">
+            <col class="w-28">
+            <col class="w-14">
+            <col>
+            <col class="w-20">
+            <col class="w-16">
+            <col class="w-16">
+            <col class="w-20">
+            <col class="w-20">
+            <col class="w-16">
+            <col class="w-14">
+            <col class="w-16">
+          </colgroup>
           <thead>
             <tr class="bg-gray-800 dark:bg-gray-950 text-white">
-              <th class="px-1 py-2 w-8">
+              <th class="px-1 py-2">
                 <input type="checkbox" :checked="allSelected" @change="toggleSelectAll()" class="w-3.5 h-3.5 accent-purple-600">
               </th>
-              <th class="px-3 py-2 text-left cursor-pointer" @click="sortBy('item')">Item</th>
-              <th class="px-3 py-2 text-left cursor-pointer" @click="sortBy('brand')">Brand</th>
-              <th class="px-3 py-2 text-left">年式</th>
-              <th class="px-3 py-2 text-left cursor-pointer" @click="sortBy('model')">Model</th>
-              <th class="px-3 py-2 text-left">狀態</th>
-              <th class="px-3 py-2 text-left">外觀色</th>
-              <th class="px-3 py-2 text-left">內裝色</th>
-              <th class="px-3 py-2 text-left">改裝</th>
-              <th class="px-3 py-2 text-left">PO狀態</th>
-              <th class="px-3 py-2 text-left">負責人</th>
-              <th class="px-3 py-2 text-center">文案</th>
-              <th class="px-3 py-2 text-center">操作</th>
+              <th class="px-2 py-2 text-left cursor-pointer" @click="sortBy('item')">Item</th>
+              <th class="px-2 py-2 text-left cursor-pointer" @click="sortBy('brand')">Brand</th>
+              <th class="px-2 py-2 text-left">年式</th>
+              <th class="px-2 py-2 text-left cursor-pointer" @click="sortBy('model')">Model</th>
+              <th class="px-2 py-2 text-left">狀態</th>
+              <th class="px-2 py-2 text-left">外觀色</th>
+              <th class="px-2 py-2 text-left">內裝色</th>
+              <th class="px-2 py-2 text-left">改裝</th>
+              <th class="px-2 py-2 text-left">PO狀態</th>
+              <th class="px-2 py-2 text-left">負責人</th>
+              <th class="px-2 py-2 text-center">文案</th>
+              <th class="px-2 py-2 text-center">操作</th>
             </tr>
           </thead>
-          <tbody>
-            <template x-for="car in filteredCars" :key="car.item">
-              <tr>
-                <!-- Main row -->
-                <td colspan="13" class="p-0">
-                  <div :class="'status-' + car.status + ' border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center cursor-pointer'" @click="toggleExpand(car.item)">
-                    <span class="px-1" @click.stop>
-                      <input type="checkbox" :checked="isSelected(car.item)" @change="toggleSelect(car.item)" class="w-3.5 h-3.5 accent-purple-600">
-                    </span>
-                    <span class="px-1 text-gray-400 text-xs" x-text="expandedItem === car.item ? '&#9660;' : '&#9654;'"></span>
-                    <span class="px-2 py-2 font-mono font-bold w-16" x-text="car.item"></span>
-                    <span class="px-2 py-2 w-28" x-text="car.brand"></span>
-                    <span class="px-2 py-2 w-14" x-text="car.year"></span>
-                    <span class="px-2 py-2 flex-1" x-text="car.model"></span>
-                    <span class="px-2 py-2 w-20">
-                      <span class="px-2 py-0.5 rounded text-xs font-medium"
-                        :class="{
-                          'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300': car.status === '在庫',
-                          'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300': car.status === '新到貨',
-                          'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300': car.status === '海運中' || car.status === '海運',
-                          'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300': car.status === '驗車中' || car.status === '驗車' || car.status === '驗車完成',
-                          'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300': car.status === '已售出' || car.status === 'Sold',
-                          'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300': car.status === '特殊',
-                        }"
-                        x-text="car.status"></span>
-                    </span>
-                    <span class="px-2 py-2 w-16" x-text="car.exteriorColor"></span>
-                    <span class="px-2 py-2 w-16" x-text="car.interiorColor"></span>
-                    <span class="px-2 py-2 w-20 text-xs text-gray-600 dark:text-gray-400" x-text="car.modification"></span>
-                    <span class="px-2 py-2 w-20" @click.stop>
-                      <select :value="car.poStatus" @change="updatePo(car.item, $event.target.value)" class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-1 py-0.5 text-xs">
-                        <option value="未PO">未PO</option>
-                        <option value="部分PO">部分PO</option>
-                        <option value="已PO">已PO</option>
-                        <option value="不需PO">不需PO</option>
-                      </select>
-                    </span>
-                    <span class="px-2 py-2 w-16 text-xs" x-text="car.owner"></span>
-                    <span class="px-2 py-2 w-14 text-center">
-                      <span class="px-1.5 py-0.5 rounded text-[10px]"
-                        :class="{
-                          'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300': getCopyStatus(car.item) === '完整',
-                          'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300': getCopyStatus(car.item) === '部分',
-                          'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400': getCopyStatus(car.item) === '未生成',
-                        }"
-                        x-text="getCopyStatus(car.item)"></span>
-                    </span>
-                    <span class="px-2 py-2 w-16 text-center" @click.stop>
-                      <button x-show="car.poStatus !== '已PO'" @click="updatePo(car.item, '已PO')"
-                        class="text-green-600 dark:text-green-400 hover:text-green-800 text-xs font-medium">PO完成</button>
-                      <span x-show="car.poStatus === '已PO'" class="text-green-600 dark:text-green-400 text-xs">&#10003;</span>
-                    </span>
-                  </div>
-                  <!-- Expanded copy panel -->
-                  <div x-show="expandedItem === car.item" x-cloak class="bg-gray-50 dark:bg-gray-800/50 border-b dark:border-gray-700 p-4">
+          <template x-for="car in filteredCars" :key="car.item">
+            <tbody>
+              <tr :class="'status-' + car.status" class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" @click="toggleExpand(car.item)">
+                <td class="px-1 py-2 text-center" @click.stop>
+                  <input type="checkbox" :checked="isSelected(car.item)" @change="toggleSelect(car.item)" class="w-3.5 h-3.5 accent-purple-600">
+                </td>
+                <td class="px-2 py-2 font-mono font-bold">
+                  <span class="text-gray-400 text-xs mr-1" x-text="expandedItem === car.item ? '&#9660;' : '&#9654;'"></span>
+                  <span x-text="car.item"></span>
+                </td>
+                <td class="px-2 py-2 truncate" x-text="car.brand"></td>
+                <td class="px-2 py-2" x-text="car.year"></td>
+                <td class="px-2 py-2 truncate" x-text="car.model"></td>
+                <td class="px-2 py-2">
+                  <span class="px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap"
+                    :class="{
+                      'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300': car.status === '在庫',
+                      'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300': car.status === '新到貨',
+                      'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300': car.status === '海運中' || car.status === '海運',
+                      'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300': car.status === '驗車中' || car.status === '驗車' || car.status === '驗車完成',
+                      'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300': car.status === '已售出' || car.status === 'Sold',
+                      'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300': car.status === '特殊',
+                    }"
+                    x-text="car.status"></span>
+                </td>
+                <td class="px-2 py-2 truncate" x-text="car.exteriorColor"></td>
+                <td class="px-2 py-2 truncate" x-text="car.interiorColor"></td>
+                <td class="px-2 py-2 text-xs text-gray-600 dark:text-gray-400 truncate" x-text="car.modification"></td>
+                <td class="px-2 py-2" @click.stop>
+                  <select :value="car.poStatus" @change="updatePo(car.item, $event.target.value)" class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-1 py-0.5 text-xs w-full">
+                    <option value="未PO">未PO</option>
+                    <option value="部分PO">部分PO</option>
+                    <option value="已PO">已PO</option>
+                    <option value="不需PO">不需PO</option>
+                  </select>
+                </td>
+                <td class="px-2 py-2 text-xs truncate" x-text="car.owner"></td>
+                <td class="px-2 py-2 text-center">
+                  <span class="px-1.5 py-0.5 rounded text-[10px]"
+                    :class="{
+                      'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300': getCopyStatus(car.item) === '完整',
+                      'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300': getCopyStatus(car.item) === '部分',
+                      'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400': getCopyStatus(car.item) === '未生成',
+                    }"
+                    x-text="getCopyStatus(car.item)"></span>
+                </td>
+                <td class="px-2 py-2 text-center" @click.stop>
+                  <button x-show="car.poStatus !== '已PO'" @click="updatePo(car.item, '已PO')"
+                    class="text-green-600 dark:text-green-400 hover:text-green-800 text-xs font-medium">PO完成</button>
+                  <span x-show="car.poStatus === '已PO'" class="text-green-600 dark:text-green-400 text-xs">&#10003;</span>
+                </td>
+              </tr>
+              <!-- Expanded copy panel -->
+              <tr x-show="expandedItem === car.item" x-cloak>
+                <td colspan="13" class="bg-gray-50 dark:bg-gray-800/50 border-b dark:border-gray-700 p-4">
                     <div class="flex gap-2 mb-4 items-center flex-wrap">
                       <span class="text-sm font-medium">文案生成</span>
                       <button @click.stop="generateAll(car.item)" :disabled="generating"
@@ -259,8 +274,8 @@
                   </div>
                 </td>
               </tr>
-            </template>
-          </tbody>
+            </tbody>
+          </template>
         </table>
         <div x-show="filteredCars.length === 0" class="p-8 text-center text-gray-500 dark:text-gray-400">
           <span x-show="loading">載入中...</span>
