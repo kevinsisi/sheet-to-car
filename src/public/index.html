@@ -101,10 +101,13 @@
           <span x-show="syncing">同步中...</span>
         </button>
         <div class="flex items-center gap-1">
-          <button @click="batchGenerate()" :disabled="batchRunning" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 disabled:opacity-50">
-            <span x-show="!batchRunning">批次生成文案（在庫）</span>
+          <button @click="batchGenerate(false)" :disabled="batchRunning" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 disabled:opacity-50">
+            <span x-show="!batchRunning">自動生成（最新）</span>
             <span x-show="batchRunning" x-text="'生成中 ' + (batchProgress?.done || 0) + '/' + (batchProgress?.total || 0)"></span>
           </button>
+          <button x-show="selectedItems.size > 0" @click="batchGenerate(true)" :disabled="batchRunning"
+            class="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50"
+            x-text="'生成勾選 (' + selectedItems.size + ')'"></button>
           <input type="number" x-model.number="batchLimit" min="1" max="50" class="w-14 border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-2 text-xs text-center" title="每批次數量">
         </div>
         <span class="text-sm text-gray-500 dark:text-gray-400" x-text="`共 ${filteredCars.length} 台`"></span>
@@ -136,7 +139,10 @@
                 <!-- Main row -->
                 <td colspan="11" class="p-0">
                   <div :class="'status-' + car.status + ' border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center cursor-pointer'" @click="toggleExpand(car.item)">
-                    <span class="px-2 text-gray-400" x-text="expandedItem === car.item ? '&#9660;' : '&#9654;'"></span>
+                    <span class="px-1" @click.stop>
+                      <input type="checkbox" :checked="isSelected(car.item)" @change="toggleSelect(car.item)" class="w-3.5 h-3.5 accent-purple-600">
+                    </span>
+                    <span class="px-1 text-gray-400 text-xs" x-text="expandedItem === car.item ? '&#9660;' : '&#9654;'"></span>
                     <span class="px-2 py-2 font-mono font-bold w-16" x-text="car.item"></span>
                     <span class="px-2 py-2 w-28" x-text="car.brand"></span>
                     <span class="px-2 py-2 w-14" x-text="car.year"></span>

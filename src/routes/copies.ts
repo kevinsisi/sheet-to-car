@@ -86,17 +86,24 @@ router.post('/batch-generate', async (req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
-  const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+  const limit = Math.min(parseInt(req.query.limit as string) || 5, 50);
+  const items: string[] = req.body?.items || []; // specific items to generate
 
   try {
     const cars = await getCars();
     const inStock = cars.filter(c => c.status === '在庫');
 
-    // Find cars without any copies, limited
-    const needGen = inStock.filter(c => {
-      const copies = getCopies(c.item);
-      return copies.length === 0;
-    }).slice(0, limit);
+    let needGen;
+    if (items.length > 0) {
+      // User selected specific cars to (re)generate
+      needGen = inStock.filter(c => items.includes(c.item)).slice(0, limit);
+    } else {
+      // Auto: newest cars without copies (reverse order = newest first)
+      needGen = [...inStock].reverse().filter(c => {
+        const copies = getCopies(c.item);
+        return copies.length === 0;
+      }).slice(0, limit);
+    }
 
     const totalAvailable = inStock.filter(c => getCopies(c.item).length === 0).length;
 

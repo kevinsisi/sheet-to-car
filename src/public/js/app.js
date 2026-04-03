@@ -11,8 +11,9 @@ function app() {
     lastUpdated: null,
     batchRunning: false,
     batchProgress: null, // { done, total, current }
-    batchLimit: 10,
+    batchLimit: 5,
     copyToast: '',
+    selectedItems: new Set(),
 
     // Expanded car row
     expandedItem: null,
@@ -214,11 +215,33 @@ function app() {
       await this.loadCopies(this.expandedItem);
     },
 
-    async batchGenerate() {
+    toggleSelect(item) {
+      if (this.selectedItems.has(item)) {
+        this.selectedItems.delete(item);
+      } else {
+        this.selectedItems.add(item);
+      }
+      // Force reactivity
+      this.selectedItems = new Set(this.selectedItems);
+    },
+
+    isSelected(item) {
+      return this.selectedItems.has(item);
+    },
+
+    async batchGenerate(useSelected = false) {
       this.batchRunning = true;
       this.batchProgress = { done: 0, total: 0, current: '' };
+      const body = {};
+      if (useSelected && this.selectedItems.size > 0) {
+        body.items = [...this.selectedItems];
+      }
       try {
-        const resp = await fetch(`/api/copies/batch-generate?limit=${this.batchLimit}`, { method: 'POST' });
+        const resp = await fetch(`/api/copies/batch-generate?limit=${this.batchLimit}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         while (true) {
@@ -245,6 +268,7 @@ function app() {
         alert('批次生成失敗: ' + err.message);
       }
       this.batchRunning = false;
+      if (useSelected) this.selectedItems = new Set();
     },
 
     async copyToClipboard(text) {
