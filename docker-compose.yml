@@ -1,6 +1,6 @@
 services:
   sheet-to-car:
-    build: .
+    image: kevin950805/sheet-to-car:latest
     container_name: sheet-to-car
     restart: unless-stopped
     ports:
