@@ -7,12 +7,8 @@ const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
 ];
 
-// In Docker: __dirname = /app/dist/lib/sheets, project root = /app
-// In dev: __dirname = src/lib/sheets, project root = .
-const PROJECT_ROOT = path.resolve(__dirname, '..', '..', '..');
-const APP_ROOT = process.env.NODE_ENV === 'production'
-  ? path.resolve(PROJECT_ROOT, '..')  // /app/dist/../../ = /app
-  : PROJECT_ROOT;
+// Use working directory as root — Docker WORKDIR is /app
+const APP_ROOT = process.cwd();
 const SERVICE_ACCOUNT_PATH = path.join(APP_ROOT, 'service-account.json');
 const CREDENTIALS_PATH = path.join(APP_ROOT, 'credentials.json');
 const TOKEN_PATH = path.join(APP_ROOT, 'token.json');
