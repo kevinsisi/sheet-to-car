@@ -22,7 +22,8 @@ function needsSync(): boolean {
 export async function syncCarsToDb(forceRefresh = false): Promise<number> {
   if (!forceRefresh && !needsSync()) {
     const count = db.prepare('SELECT COUNT(*) as c FROM cars').get() as any;
-    if (count.c > 0) return count.c;
+    const hasOrder = db.prepare('SELECT COUNT(*) as c FROM cars WHERE row_order > 0').get() as any;
+    if (count.c > 0 && hasOrder.c > 0) return count.c;
   }
 
   const spreadsheetId = getSpreadsheetId();
