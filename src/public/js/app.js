@@ -249,6 +249,27 @@ function app() {
       }
     },
 
+    async togglePoPlatform(item, platform, field) {
+      const car = this.cars.find(c => c.item === item);
+      if (!car) return;
+      const newValue = !car[field];
+      try {
+        const resp = await fetch(`/api/cars/${item}/po-platform`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform, value: newValue }),
+        });
+        if (resp.ok) {
+          car[field] = newValue;
+        } else {
+          const err = await resp.json();
+          alert('更新失敗: ' + err.error);
+        }
+      } catch (err) {
+        alert('更新失敗: ' + err.message);
+      }
+    },
+
     // ── Copy Generation ──
     async toggleExpand(item) {
       if (this.expandedItem === item) {
