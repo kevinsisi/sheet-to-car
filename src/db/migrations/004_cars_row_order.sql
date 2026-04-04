@@ -1,0 +1,2 @@
+ALTER TABLE cars ADD COLUMN row_order INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_cars_row_order ON cars(row_order DESC);

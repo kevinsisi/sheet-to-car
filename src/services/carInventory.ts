@@ -31,8 +31,8 @@ export async function syncCarsToDb(forceRefresh = false): Promise<number> {
   const cars = await readCarsFromSheet(spreadsheetId);
 
   const upsert = db.prepare(`
-    INSERT OR REPLACE INTO cars (item, source, brand, year, manufacture_date, mileage, model, vin, condition, status, exterior_color, interior_color, modification, note, po_status, owner, price, bg_color, updated_at)
-    VALUES (@item, @source, @brand, @year, @manufactureDate, @mileage, @model, @vin, @condition, @status, @exteriorColor, @interiorColor, @modification, @note, @poStatus, @owner, @price, @bgColor, datetime('now'))
+    INSERT OR REPLACE INTO cars (item, source, brand, year, manufacture_date, mileage, model, vin, condition, status, exterior_color, interior_color, modification, note, po_status, owner, price, bg_color, row_order, updated_at)
+    VALUES (@item, @source, @brand, @year, @manufactureDate, @mileage, @model, @vin, @condition, @status, @exteriorColor, @interiorColor, @modification, @note, @poStatus, @owner, @price, @bgColor, @rowOrder, datetime('now'))
   `);
 
   const validItems = new Set(cars.map(c => c.item));
@@ -44,8 +44,9 @@ export async function syncCarsToDb(forceRefresh = false): Promise<number> {
         db.prepare('DELETE FROM cars WHERE item = ?').run(row.item);
       }
     }
-    for (const car of records) {
-      upsert.run(car);
+    // row_order = index in sheet (0-based), last row = highest number = latest
+    for (let i = 0; i < records.length; i++) {
+      upsert.run({ ...records[i], rowOrder: i });
     }
   });
   runSync(cars);
@@ -78,9 +79,9 @@ export interface PaginatedResult {
   hasMore: boolean;
 }
 
-/** Column name mapping: API sort key -> DB column */
+/** Column name mapping: API sort key -> DB column/expression */
 const SORT_COLUMNS: Record<string, string> = {
-  item: 'item',
+  item: 'row_order',
   brand: 'brand',
   model: 'model',
   year: 'year',
@@ -122,13 +123,8 @@ export function getCarsPaginated(params: PaginationParams): PaginatedResult {
   const countSql = `SELECT COUNT(*) as total FROM cars c ${whereClause}`;
   const { total } = db.prepare(countSql).get(...bindings) as any;
 
-  // For item column, sort by numeric part (e.g. A67→67, T7→7, T25→25)
-  const orderExpr = sortCol === 'item'
-    ? `CAST(LTRIM(c.item, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz') AS INTEGER) ${sortDir}`
-    : `c.${sortCol} ${sortDir}`;
-
   // Fetch page
-  const dataSql = `SELECT c.* FROM cars c ${whereClause} ORDER BY ${orderExpr} LIMIT ? OFFSET ?`;
+  const dataSql = `SELECT c.* FROM cars c ${whereClause} ORDER BY c.${sortCol} ${sortDir} LIMIT ? OFFSET ?`;
   const rows = db.prepare(dataSql).all(...bindings, pageSize, offset) as any[];
 
   const cars: CarRecord[] = rows.map(row => ({
