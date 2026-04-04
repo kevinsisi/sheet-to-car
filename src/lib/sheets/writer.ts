@@ -22,9 +22,33 @@ export async function updateCarField(
   const headers = headerResp.data.values?.[0] || [];
   let colIndex = headers.findIndex((h: string) => (h || '').trim() === headerName);
 
-  // If column doesn't exist, append it
+  // If column doesn't exist, expand grid and append it
   if (colIndex === -1) {
     colIndex = headers.length;
+
+    // Get sheet ID and current column count
+    const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties)' });
+    const sheet = meta.data.sheets?.find(s => s.properties?.title === '整合庫存');
+    if (sheet && sheet.properties) {
+      const currentCols = sheet.properties.gridProperties?.columnCount || 0;
+      if (colIndex >= currentCols) {
+        // Expand grid to fit new column
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [{
+              appendDimension: {
+                sheetId: sheet.properties.sheetId!,
+                dimension: 'COLUMNS',
+                length: colIndex - currentCols + 1,
+              },
+            }],
+          },
+        });
+        console.log(`[writer] Expanded grid from ${currentCols} to ${colIndex + 1} columns`);
+      }
+    }
+
     const colLetter = indexToColumn(colIndex);
     await sheets.spreadsheets.values.update({
       spreadsheetId,
