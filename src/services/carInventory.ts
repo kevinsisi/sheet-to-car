@@ -32,8 +32,8 @@ export async function syncCarsToDb(forceRefresh = false): Promise<number> {
   const cars = await readCarsFromSheet(spreadsheetId);
 
   const upsert = db.prepare(`
-    INSERT OR REPLACE INTO cars (item, source, brand, year, manufacture_date, mileage, model, vin, condition, status, exterior_color, interior_color, modification, note, po_status, owner, price, bg_color, row_order, updated_at)
-    VALUES (@item, @source, @brand, @year, @manufactureDate, @mileage, @model, @vin, @condition, @status, @exteriorColor, @interiorColor, @modification, @note, @poStatus, @owner, @price, @bgColor, @rowOrder, datetime('now'))
+    INSERT OR REPLACE INTO cars (item, source, brand, year, manufacture_date, mileage, model, vin, condition, status, exterior_color, interior_color, modification, note, po_status, owner, price, bg_color, row_order, po_official, po_8891, po_facebook, po_post_helper, updated_at)
+    VALUES (@item, @source, @brand, @year, @manufactureDate, @mileage, @model, @vin, @condition, @status, @exteriorColor, @interiorColor, @modification, @note, @poStatus, @owner, @price, @bgColor, @rowOrder, @poOfficial, @po8891, @poFacebook, @poPostHelper, datetime('now'))
   `);
 
   const validItems = new Set(cars.map(c => c.item));
@@ -47,7 +47,14 @@ export async function syncCarsToDb(forceRefresh = false): Promise<number> {
     }
     // row_order = index in sheet (0-based), last row = highest number = latest
     for (let i = 0; i < records.length; i++) {
-      upsert.run({ ...records[i], rowOrder: i });
+      upsert.run({
+        ...records[i],
+        rowOrder: i,
+        poOfficial: records[i].poOfficial ? 1 : 0,
+        po8891: records[i].po8891 ? 1 : 0,
+        poFacebook: records[i].poFacebook ? 1 : 0,
+        poPostHelper: records[i].poPostHelper ? 1 : 0,
+      });
     }
   });
   runSync(cars);
@@ -144,6 +151,10 @@ export function getCarsPaginated(params: PaginationParams): PaginatedResult {
     modification: row.modification,
     note: row.note,
     poStatus: row.po_status,
+    poOfficial: !!row.po_official,
+    po8891: !!row.po_8891,
+    poFacebook: !!row.po_facebook,
+    poPostHelper: !!row.po_post_helper,
     owner: row.owner,
     price: row.price,
     bgColor: row.bg_color,
@@ -195,6 +206,28 @@ export async function setPoStatus(item: string, poStatus: string): Promise<boole
   const success = await updatePoStatus(spreadsheetId, item, poStatus);
   if (success) {
     db.prepare('UPDATE cars SET po_status = ?, updated_at = datetime(\'now\') WHERE item = ?').run(poStatus, item);
+  }
+  return success;
+}
+
+/** Update per-platform PO status in DB and sync to sheet */
+export async function setPoPlatform(item: string, platform: string, value: boolean): Promise<boolean> {
+  const spreadsheetId = getSpreadsheetId();
+  if (!spreadsheetId) throw new Error('SPREADSHEET_ID not configured');
+
+  const { updatePoPlatform } = await import('../lib/sheets/writer');
+  const success = await updatePoPlatform(spreadsheetId, item, platform, value);
+  if (success) {
+    const colMap: Record<string, string> = {
+      official: 'po_official',
+      '8891': 'po_8891',
+      facebook: 'po_facebook',
+      post_helper: 'po_post_helper',
+    };
+    const col = colMap[platform];
+    if (col) {
+      db.prepare(`UPDATE cars SET ${col} = ?, updated_at = datetime('now') WHERE item = ?`).run(value ? 1 : 0, item);
+    }
   }
   return success;
 }

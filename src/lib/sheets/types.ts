@@ -14,6 +14,10 @@ export interface CarRecord {
   modification: string;
   note: string;
   poStatus: string;
+  poOfficial: boolean;
+  po8891: boolean;
+  poFacebook: boolean;
+  poPostHelper: boolean;
   owner: string;
   price: string;
   bgColor: string;

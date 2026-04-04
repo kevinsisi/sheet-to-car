@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getCarsPaginated, syncCarsToDb, getNewCars, getStats, setPoStatus, syncFromSheet, getAllCars } from '../services/carInventory';
+import { getCarsPaginated, syncCarsToDb, getNewCars, getStats, setPoStatus, setPoPlatform, syncFromSheet, getAllCars } from '../services/carInventory';
 
 const router = Router();
 
@@ -50,6 +50,24 @@ router.get('/cars/stats', async (_req: Request, res: Response) => {
     await syncCarsToDb();
     const stats = getStats();
     return res.json(stats);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/cars/:item/po-platform — update per-platform PO status
+router.post('/cars/:item/po-platform', async (req: Request, res: Response) => {
+  try {
+    const { item } = req.params;
+    const { platform, value } = req.body;
+    if (!platform || value === undefined) {
+      return res.status(400).json({ error: 'platform and value are required' });
+    }
+
+    const success = await setPoPlatform(item, platform, !!value);
+    if (!success) return res.status(404).json({ error: `Car "${item}" not found or invalid platform` });
+
+    return res.json({ success: true, item, platform, value: !!value });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

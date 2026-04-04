@@ -2,6 +2,11 @@ import { google } from 'googleapis';
 import { authorize } from './auth';
 import { CarRecord } from './types';
 
+function isTruthy(val: string): boolean {
+  const v = (val || '').trim().toLowerCase();
+  return v === 'true' || v === '1' || v === 'v' || v === '✓' || v === 'yes';
+}
+
 /**
  * Read car inventory from 整合庫存 sheet ONLY.
  * Does NOT touch 車源 or 庫存 sheets.
@@ -88,6 +93,10 @@ export async function readCarsFromSheet(spreadsheetId: string): Promise<CarRecor
       modification: '',
       note: col('備註') || '',
       poStatus: col('PO狀態') || '未PO',
+      poOfficial: isTruthy(col('PO_官網')),
+      po8891: isTruthy(col('PO_8891')),
+      poFacebook: isTruthy(col('PO_Facebook')),
+      poPostHelper: isTruthy(col('PO_PostHelper')),
       owner: col('分配') || '',
       price: col('開價') || '',
       bgColor: '',

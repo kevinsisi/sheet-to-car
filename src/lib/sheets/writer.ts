@@ -99,6 +99,24 @@ export async function updatePoStatus(
   return updateCarField(spreadsheetId, item, 'PO狀態', poStatus);
 }
 
+/** Update per-platform PO status — creates column if needed */
+export async function updatePoPlatform(
+  spreadsheetId: string,
+  item: string,
+  platform: string,
+  value: boolean
+): Promise<boolean> {
+  const headerMap: Record<string, string> = {
+    official: 'PO_官網',
+    '8891': 'PO_8891',
+    facebook: 'PO_Facebook',
+    post_helper: 'PO_PostHelper',
+  };
+  const headerName = headerMap[platform];
+  if (!headerName) return false;
+  return updateCarField(spreadsheetId, item, headerName, value ? 'TRUE' : 'FALSE');
+}
+
 /** Convert 0-based column index to letter (0→A, 25→Z, 26→AA) */
 function indexToColumn(index: number): string {
   let col = '';
