@@ -122,8 +122,13 @@ export function getCarsPaginated(params: PaginationParams): PaginatedResult {
   const countSql = `SELECT COUNT(*) as total FROM cars c ${whereClause}`;
   const { total } = db.prepare(countSql).get(...bindings) as any;
 
+  // For item column, sort by numeric part (e.g. A67→67, T7→7, T25→25)
+  const orderExpr = sortCol === 'item'
+    ? `CAST(LTRIM(c.item, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz') AS INTEGER) ${sortDir}`
+    : `c.${sortCol} ${sortDir}`;
+
   // Fetch page
-  const dataSql = `SELECT c.* FROM cars c ${whereClause} ORDER BY c.${sortCol} ${sortDir} LIMIT ? OFFSET ?`;
+  const dataSql = `SELECT c.* FROM cars c ${whereClause} ORDER BY ${orderExpr} LIMIT ? OFFSET ?`;
   const rows = db.prepare(dataSql).all(...bindings, pageSize, offset) as any[];
 
   const cars: CarRecord[] = rows.map(row => ({
