@@ -1,30 +1,33 @@
 import { Router, Request, Response } from 'express';
-import { getCars, getNewCars, getStats, setPoStatus, syncFromSheet } from '../services/carInventory';
+import { getCarsPaginated, syncCarsToDb, getNewCars, getStats, setPoStatus, syncFromSheet, getAllCars } from '../services/carInventory';
 
 const router = Router();
 
-// GET /api/cars — list all cars with optional filters
+// GET /api/cars — paginated cars with server-side filtering
 router.get('/cars', async (req: Request, res: Response) => {
   try {
     const refresh = req.query.refresh === 'true';
-    let cars = await getCars(refresh);
+    const all = req.query.all === 'true';
 
-    const { status, brand, source, poStatus, search } = req.query;
-    if (status) cars = cars.filter(c => c.status === status);
-    if (brand) cars = cars.filter(c => c.brand === brand);
-    if (source) cars = cars.filter(c => c.source === source);
-    if (poStatus) cars = cars.filter(c => c.poStatus === poStatus);
-    if (search) {
-      const q = (search as string).toLowerCase();
-      cars = cars.filter(c =>
-        c.item.toLowerCase().includes(q) ||
-        c.brand.toLowerCase().includes(q) ||
-        c.model.toLowerCase().includes(q) ||
-        c.vin.toLowerCase().includes(q)
-      );
+    // Sync if refresh requested or on first load
+    await syncCarsToDb(refresh);
+
+    if (all) {
+      const cars = getAllCars();
+      return res.json({ cars, total: cars.length });
     }
 
-    return res.json({ cars, total: cars.length });
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize as string) || 50));
+    const search = req.query.search as string | undefined;
+    const status = req.query.status as string | undefined;
+    const poStatus = req.query.poStatus as string | undefined;
+    const copyStatus = req.query.copyStatus as string | undefined;
+    const sort = req.query.sort as string || 'item';
+    const order = (req.query.order as string || 'desc') as 'asc' | 'desc';
+
+    const result = getCarsPaginated({ page, pageSize, search, status, poStatus, copyStatus, sort, order });
+    return res.json(result);
   } catch (err: any) {
     console.error('[api] Error fetching cars:', err.message);
     return res.status(500).json({ error: err.message });
@@ -44,7 +47,8 @@ router.get('/cars/new', async (_req: Request, res: Response) => {
 // GET /api/cars/stats — aggregate stats
 router.get('/cars/stats', async (_req: Request, res: Response) => {
   try {
-    const stats = await getStats();
+    await syncCarsToDb();
+    const stats = getStats();
     return res.json(stats);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
