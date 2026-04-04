@@ -3,70 +3,165 @@ import { updatePoStatus } from '../lib/sheets/writer';
 import { CarRecord } from '../lib/sheets/types';
 import db from '../db/connection';
 
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-let cachedCars: CarRecord[] = [];
-let lastFetchTime = 0;
+const SYNC_TTL = 12 * 60 * 60 * 1000; // 12 hours
 
 function getSpreadsheetId(): string {
   const fromDb = db.prepare("SELECT value FROM settings WHERE key = 'spreadsheet_id'").get() as any;
   return fromDb?.value || process.env.SPREADSHEET_ID || '';
 }
 
-/** Get all cars (from cache or fresh fetch) */
-export async function getCars(forceRefresh = false): Promise<CarRecord[]> {
-  const now = Date.now();
+/** Check if sync is needed based on last sync time */
+function needsSync(): boolean {
+  const row = db.prepare('SELECT fetched_at FROM car_cache ORDER BY fetched_at DESC LIMIT 1').get() as any;
+  if (!row) return true;
+  const lastSync = new Date(row.fetched_at + 'Z').getTime();
+  return Date.now() - lastSync > SYNC_TTL;
+}
 
-  if (!forceRefresh && cachedCars.length > 0 && now - lastFetchTime < CACHE_TTL) {
-    return cachedCars;
+/** Sync all cars from Google Sheets into cars table */
+export async function syncCarsToDb(forceRefresh = false): Promise<number> {
+  if (!forceRefresh && !needsSync()) {
+    const count = db.prepare('SELECT COUNT(*) as c FROM cars').get() as any;
+    if (count.c > 0) return count.c;
   }
 
   const spreadsheetId = getSpreadsheetId();
-  if (!spreadsheetId) {
-    throw new Error('SPREADSHEET_ID not configured');
-  }
+  if (!spreadsheetId) throw new Error('SPREADSHEET_ID not configured');
 
-  try {
-    cachedCars = await readCarsFromSheet(spreadsheetId);
-    lastFetchTime = Date.now();
+  const cars = await readCarsFromSheet(spreadsheetId);
 
-    // Persist to DB for offline access
-    db.prepare('DELETE FROM car_cache').run();
-    db.prepare('INSERT INTO car_cache (data) VALUES (?)').run(JSON.stringify(cachedCars));
+  const upsert = db.prepare(`
+    INSERT OR REPLACE INTO cars (item, source, brand, year, manufacture_date, mileage, model, vin, condition, status, exterior_color, interior_color, modification, note, po_status, owner, price, bg_color, updated_at)
+    VALUES (@item, @source, @brand, @year, @manufactureDate, @mileage, @model, @vin, @condition, @status, @exteriorColor, @interiorColor, @modification, @note, @poStatus, @owner, @price, @bgColor, datetime('now'))
+  `);
 
-    return cachedCars;
-  } catch (err) {
-    // Fallback to DB cache
-    if (cachedCars.length === 0) {
-      const row = db.prepare('SELECT data FROM car_cache ORDER BY fetched_at DESC LIMIT 1').get() as any;
-      if (row?.data) {
-        cachedCars = JSON.parse(row.data);
-        return cachedCars;
-      }
+  const runUpsert = db.transaction((records: CarRecord[]) => {
+    for (const car of records) {
+      upsert.run(car);
     }
-    throw err;
+  });
+  runUpsert(cars);
+
+  // Update sync timestamp in car_cache
+  db.prepare('DELETE FROM car_cache').run();
+  db.prepare('INSERT INTO car_cache (data) VALUES (?)').run(JSON.stringify([]));
+
+  return cars.length;
+}
+
+/** Paginated query parameters */
+export interface PaginationParams {
+  page: number;
+  pageSize: number;
+  search?: string;
+  status?: string;
+  poStatus?: string;
+  copyStatus?: string;
+  sort?: string;
+  order?: 'asc' | 'desc';
+}
+
+/** Paginated query result */
+export interface PaginatedResult {
+  cars: CarRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
+/** Column name mapping: API sort key -> DB column */
+const SORT_COLUMNS: Record<string, string> = {
+  item: 'item',
+  brand: 'brand',
+  model: 'model',
+  year: 'year',
+  status: 'status',
+};
+
+/** Get paginated cars from DB */
+export function getCarsPaginated(params: PaginationParams): PaginatedResult {
+  const { page, pageSize, search, status, poStatus, copyStatus, sort = 'item', order = 'desc' } = params;
+
+  const conditions: string[] = [];
+  const bindings: any[] = [];
+
+  if (search) {
+    conditions.push('(c.item LIKE ? OR c.brand LIKE ? OR c.model LIKE ? OR c.vin LIKE ?)');
+    const q = `%${search}%`;
+    bindings.push(q, q, q, q);
   }
+  if (status) {
+    conditions.push('c.status = ?');
+    bindings.push(status);
+  }
+  if (poStatus) {
+    conditions.push('c.po_status = ?');
+    bindings.push(poStatus);
+  }
+  if (copyStatus === 'has_copy') {
+    conditions.push('(SELECT COUNT(*) FROM car_copies cc WHERE cc.item = c.item) > 0');
+  } else if (copyStatus === 'no_copy') {
+    conditions.push('(SELECT COUNT(*) FROM car_copies cc WHERE cc.item = c.item) = 0');
+  }
+
+  const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+  const sortCol = SORT_COLUMNS[sort] || 'item';
+  const sortDir = order === 'asc' ? 'ASC' : 'DESC';
+  const offset = (page - 1) * pageSize;
+
+  // Count total
+  const countSql = `SELECT COUNT(*) as total FROM cars c ${whereClause}`;
+  const { total } = db.prepare(countSql).get(...bindings) as any;
+
+  // Fetch page
+  const dataSql = `SELECT c.* FROM cars c ${whereClause} ORDER BY c.${sortCol} ${sortDir} LIMIT ? OFFSET ?`;
+  const rows = db.prepare(dataSql).all(...bindings, pageSize, offset) as any[];
+
+  const cars: CarRecord[] = rows.map(row => ({
+    item: row.item,
+    source: row.source,
+    brand: row.brand,
+    year: row.year,
+    manufactureDate: row.manufacture_date,
+    mileage: row.mileage,
+    model: row.model,
+    vin: row.vin,
+    condition: row.condition,
+    status: row.status,
+    exteriorColor: row.exterior_color,
+    interiorColor: row.interior_color,
+    modification: row.modification,
+    note: row.note,
+    poStatus: row.po_status,
+    owner: row.owner,
+    price: row.price,
+    bgColor: row.bg_color,
+  }));
+
+  return {
+    cars,
+    total,
+    page,
+    pageSize,
+    hasMore: offset + cars.length < total,
+  };
 }
 
-/** Get cars filtered by status */
-export async function getCarsByStatus(status: string): Promise<CarRecord[]> {
-  const cars = await getCars();
-  return cars.filter(c => c.status === status);
+/** Get ALL cars (for AI agent, batch operations) */
+export function getAllCars(): CarRecord[] {
+  return getCarsPaginated({ page: 1, pageSize: 999999 }).cars;
 }
 
-/** Get new arrivals */
-export async function getNewCars(): Promise<CarRecord[]> {
-  return getCarsByStatus('新到貨');
-}
-
-/** Get inventory stats */
-export async function getStats(): Promise<{
+/** Get inventory stats from DB */
+export function getStats(): {
   total: number;
   byStatus: Record<string, number>;
   byBrand: Record<string, number>;
   bySource: Record<string, number>;
   byPoStatus: Record<string, number>;
-}> {
-  const cars = await getCars();
+} {
+  const cars = getAllCars();
   const byStatus: Record<string, number> = {};
   const byBrand: Record<string, number> = {};
   const bySource: Record<string, number> = {};
@@ -82,22 +177,36 @@ export async function getStats(): Promise<{
   return { total: cars.length, byStatus, byBrand, bySource, byPoStatus };
 }
 
-/** Update PO status and sync to sheet */
+/** Update PO status in DB and sync to sheet */
 export async function setPoStatus(item: string, poStatus: string): Promise<boolean> {
   const spreadsheetId = getSpreadsheetId();
   if (!spreadsheetId) throw new Error('SPREADSHEET_ID not configured');
 
   const success = await updatePoStatus(spreadsheetId, item, poStatus);
   if (success) {
-    // Update local cache
-    const car = cachedCars.find(c => c.item === item);
-    if (car) car.poStatus = poStatus;
+    db.prepare('UPDATE cars SET po_status = ?, updated_at = datetime(\'now\') WHERE item = ?').run(poStatus, item);
   }
   return success;
 }
 
-/** Force refresh from sheet */
+/** Force sync from sheet */
 export async function syncFromSheet(): Promise<number> {
-  const cars = await getCars(true);
-  return cars.length;
+  return syncCarsToDb(true);
+}
+
+// ── Backward compat exports (used by agentTools.ts) ──
+
+/** getCars now returns all from DB; forces sync if needed */
+export async function getCars(forceRefresh = false): Promise<CarRecord[]> {
+  await syncCarsToDb(forceRefresh);
+  return getAllCars();
+}
+
+export async function getCarsByStatus(status: string): Promise<CarRecord[]> {
+  const cars = await getCars();
+  return cars.filter(c => c.status === status);
+}
+
+export async function getNewCars(): Promise<CarRecord[]> {
+  return getCarsByStatus('新到貨');
 }
