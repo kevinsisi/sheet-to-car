@@ -77,8 +77,8 @@
 
       <!-- Filters -->
       <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4 flex flex-wrap gap-3 items-center">
-        <input type="text" x-model="filter.search" @input.debounce.300ms="loadCars()" placeholder="搜尋品牌、型號、VIN..." class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm flex-1 min-w-48">
-        <select x-model="filter.status" @change="loadCars()" class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm">
+        <input type="text" x-model="filter.search" placeholder="搜尋品牌、型號、VIN..." class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm flex-1 min-w-48">
+        <select x-model="filter.status" class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm">
           <option value="">全部狀態</option>
           <option value="在庫">在庫</option>
           <option value="新到貨">新到貨</option>
@@ -89,7 +89,7 @@
           <option value="Sold">已售出</option>
           <option value="特殊">特殊</option>
         </select>
-        <select x-model="filter.poStatus" @change="loadCars()" class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm">
+        <select x-model="filter.poStatus" class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm">
           <option value="">全部PO</option>
           <option value="未PO">未PO</option>
           <option value="部分PO">部分PO</option>
@@ -123,7 +123,7 @@
           <button @click="batchUpdatePo('部分PO')" class="bg-yellow-500 text-white px-3 py-2 rounded-lg text-xs hover:bg-yellow-600">部分PO</button>
           <button @click="batchUpdatePo('不需PO')" class="bg-red-500 text-white px-3 py-2 rounded-lg text-xs hover:bg-red-600">不需PO</button>
         </div>
-        <span class="text-sm text-gray-500 dark:text-gray-400" x-text="`共 ${filteredCars.length} 台`"></span>
+        <span class="text-sm text-gray-500 dark:text-gray-400" x-text="`共 ${totalCars} 台 (已載入 ${cars.length})`"></span>
         <span x-show="lastUpdated" class="text-xs text-gray-400 dark:text-gray-500" x-text="'更新: ' + lastUpdatedText"></span>
         <span x-show="batchRunning" class="text-xs text-green-600 dark:text-green-400 animate-pulse" x-text="batchProgress?.current || ''"></span>
       </div>
@@ -277,9 +277,23 @@
             </tbody>
           </template>
         </table>
-        <div x-show="filteredCars.length === 0" class="p-8 text-center text-gray-500 dark:text-gray-400">
+        <div x-show="filteredCars.length === 0 && !loadingMore" class="p-8 text-center text-gray-500 dark:text-gray-400">
           <span x-show="loading">載入中...</span>
           <span x-show="!loading">沒有找到車輛</span>
+        </div>
+        <!-- Scroll sentinel for infinite loading -->
+        <div id="scroll-sentinel" class="h-1"></div>
+        <!-- Loading more indicator -->
+        <div x-show="loadingMore" class="flex justify-center py-4">
+          <svg class="animate-spin h-6 w-6 text-purple-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          <span class="ml-2 text-sm text-gray-500">載入更多...</span>
+        </div>
+        <!-- All loaded indicator -->
+        <div x-show="!hasMore && cars.length > 0 && !loading" class="text-center py-3 text-sm text-gray-400">
+          已載入全部 <span x-text="totalCars"></span> 筆資料
         </div>
       </div>
     </div>

@@ -7,7 +7,7 @@ function app() {
     stats: {},
     filter: { search: '', status: '', poStatus: '', copyStatus: '' },
     copySummary: {}, // { item: { count, platforms } }
-    sort: { key: 'item', asc: true },
+    sort: { key: 'item', asc: false },
     dark: localStorage.getItem('dark') === 'true',
     lastUpdated: null,
     batchRunning: false,
@@ -16,6 +16,14 @@ function app() {
     maxSelect: 20,
     copyToast: '',
     selectedItems: new Set(),
+
+    // Pagination
+    page: 1,
+    pageSize: 50,
+    totalCars: 0,
+    hasMore: true,
+    loadingMore: false,
+    _searchDebounce: null,
 
     // Expanded car row
     expandedItem: null,
@@ -46,7 +54,29 @@ function app() {
 
     async init() {
       this.applyDark();
-      await Promise.all([this.loadCars(), this.loadStats(), this.checkBatchStatus(), this.loadCopySummary()]);
+      await Promise.all([this.loadCars(true), this.loadStats(), this.checkBatchStatus(), this.loadCopySummary()]);
+
+      // Watch filters — reload on change
+      this.$watch('filter.status', () => this.loadCars(true));
+      this.$watch('filter.poStatus', () => this.loadCars(true));
+      this.$watch('filter.copyStatus', () => this.loadCars(true));
+      this.$watch('filter.search', () => {
+        clearTimeout(this._searchDebounce);
+        this._searchDebounce = setTimeout(() => this.loadCars(true), 300);
+      });
+
+      this.$nextTick(() => this.setupScrollObserver());
+    },
+
+    setupScrollObserver() {
+      const sentinel = document.getElementById('scroll-sentinel');
+      if (!sentinel) return;
+      const observer = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting) {
+          this.loadNextPage();
+        }
+      }, { rootMargin: '200px' });
+      observer.observe(sentinel);
     },
 
     async loadCopySummary() {
@@ -104,28 +134,8 @@ function app() {
 
     // ── Dashboard ──
     get filteredCars() {
-      let result = [...this.cars];
-      if (this.filter.status) result = result.filter(c => c.status === this.filter.status);
-      if (this.filter.poStatus) result = result.filter(c => c.poStatus === this.filter.poStatus);
-      if (this.filter.copyStatus) {
-        result = result.filter(c => this.getCopyStatus(c.item) === this.filter.copyStatus);
-      }
-      if (this.filter.search) {
-        const q = this.filter.search.toLowerCase();
-        result = result.filter(c =>
-          c.item.toLowerCase().includes(q) ||
-          c.brand.toLowerCase().includes(q) ||
-          c.model.toLowerCase().includes(q) ||
-          (c.vin || '').toLowerCase().includes(q)
-        );
-      }
-      const key = this.sort.key;
-      result.sort((a, b) => {
-        const va = (a[key] || '').toString();
-        const vb = (b[key] || '').toString();
-        return this.sort.asc ? va.localeCompare(vb) : vb.localeCompare(va);
-      });
-      return result;
+      // Filtering is now server-side; just return loaded cars
+      return this.cars;
     },
 
     sortBy(key) {
@@ -133,8 +143,9 @@ function app() {
         this.sort.asc = !this.sort.asc;
       } else {
         this.sort.key = key;
-        this.sort.asc = true;
+        this.sort.asc = false;
       }
+      this.loadCars(true);
     },
 
     get lastUpdatedText() {
@@ -144,17 +155,60 @@ function app() {
       return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     },
 
-    async loadCars() {
-      this.loading = true;
+    async loadCars(reset = false) {
+      if (reset) {
+        this.cars = [];
+        this.page = 1;
+        this.hasMore = true;
+      }
+      if (!this.hasMore && !reset) return;
+
+      if (this.page === 1) {
+        this.loading = true;
+      } else {
+        this.loadingMore = true;
+      }
+
       try {
-        const resp = await fetch('/api/cars');
+        const params = new URLSearchParams({
+          page: String(this.page),
+          pageSize: String(this.pageSize),
+          sort: this.sort.key,
+          order: this.sort.asc ? 'asc' : 'desc',
+        });
+        if (this.filter.search) params.set('search', this.filter.search);
+        if (this.filter.status) params.set('status', this.filter.status);
+        if (this.filter.poStatus) params.set('poStatus', this.filter.poStatus);
+        if (this.filter.copyStatus) {
+          // Map UI values to API values
+          const map = { '未生成': 'no_copy', '部分': 'has_copy', '完整': 'has_copy' };
+          const val = map[this.filter.copyStatus];
+          if (val) params.set('copyStatus', val);
+        }
+
+        const resp = await fetch(`/api/cars?${params}`);
         const data = await resp.json();
-        this.cars = data.cars || [];
+
+        if (reset || this.page === 1) {
+          this.cars = data.cars || [];
+        } else {
+          this.cars = [...this.cars, ...(data.cars || [])];
+        }
+        this.totalCars = data.total;
+        this.hasMore = data.hasMore;
         this.lastUpdated = new Date();
       } catch (err) {
         console.error('Failed to load cars:', err);
       }
+
       this.loading = false;
+      this.loadingMore = false;
+    },
+
+    loadNextPage() {
+      if (!this.hasMore || this.loadingMore || this.loading) return;
+      this.page++;
+      this.loadCars();
     },
 
     async loadStats() {
@@ -168,7 +222,7 @@ function app() {
       this.syncing = true;
       try {
         await fetch('/api/sync', { method: 'POST' });
-        await Promise.all([this.loadCars(), this.loadStats()]);
+        await Promise.all([this.loadCars(true), this.loadStats()]);
       } catch (err) {
         alert('同步失敗: ' + err.message);
       }
