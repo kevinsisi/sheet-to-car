@@ -64,6 +64,8 @@ export async function readCarsFromSheet(spreadsheetId: string): Promise<CarRecor
     const row = rows[i];
     const item = (row[0] || '').trim();
     if (!item) continue;
+    // Skip section headers — valid items contain at least one digit (e.g. A67, T7, T25)
+    if (!/\d/.test(item)) continue;
 
     const col = (name: string) => {
       const idx = colMap[name];

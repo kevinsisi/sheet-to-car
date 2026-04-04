@@ -35,12 +35,20 @@ export async function syncCarsToDb(forceRefresh = false): Promise<number> {
     VALUES (@item, @source, @brand, @year, @manufactureDate, @mileage, @model, @vin, @condition, @status, @exteriorColor, @interiorColor, @modification, @note, @poStatus, @owner, @price, @bgColor, datetime('now'))
   `);
 
-  const runUpsert = db.transaction((records: CarRecord[]) => {
+  const validItems = new Set(cars.map(c => c.item));
+  const runSync = db.transaction((records: CarRecord[]) => {
+    // Remove stale rows not in current sheet data
+    const existing = db.prepare('SELECT item FROM cars').all() as { item: string }[];
+    for (const row of existing) {
+      if (!validItems.has(row.item)) {
+        db.prepare('DELETE FROM cars WHERE item = ?').run(row.item);
+      }
+    }
     for (const car of records) {
       upsert.run(car);
     }
   });
-  runUpsert(cars);
+  runSync(cars);
 
   // Update sync timestamp in car_cache
   db.prepare('DELETE FROM car_cache').run();
