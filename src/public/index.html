@@ -162,7 +162,6 @@
               <th class="px-2 py-2 text-left">PO</th>
               <th class="px-2 py-2 text-left">負責人</th>
               <th class="px-2 py-2 text-center">文案</th>
-              <th class="px-2 py-2 text-center">操作</th>
             </tr>
           </thead>
           <template x-for="car in filteredCars" :key="car.item">
@@ -195,7 +194,7 @@
                 <td class="px-2 py-2 text-xs text-gray-600 dark:text-gray-400 truncate" x-text="car.modification"></td>
                 <td class="px-1 py-1" @click.stop>
                   <div class="flex flex-wrap gap-0.5">
-                    <template x-for="po in [{key:'official',field:'poOfficial',label:'官'}, {key:'8891',field:'po8891',label:'89'}, {key:'facebook',field:'poFacebook',label:'FB'}, {key:'post_helper',field:'poPostHelper',label:'PH'}]" :key="po.key">
+                    <template x-for="po in [{key:'official',field:'poOfficial',label:'官'}, {key:'facebook',field:'poFacebook',label:'FB'}, {key:'post_helper',field:'poPostHelper',label:'PH'}]" :key="po.key">
                       <button
                         class="text-[10px] leading-none px-1.5 py-0.5 rounded font-medium transition-colors"
                         :class="car[po.field] ? 'bg-green-600 text-white' : 'bg-gray-600 text-gray-300'"
@@ -215,15 +214,10 @@
                     }"
                     x-text="getCopyStatus(car.item)"></span>
                 </td>
-                <td class="px-2 py-2 text-center" @click.stop>
-                  <button x-show="car.poStatus !== '已PO'" @click="updatePo(car.item, '已PO')"
-                    class="text-green-600 dark:text-green-400 hover:text-green-800 text-xs font-medium">PO完成</button>
-                  <span x-show="car.poStatus === '已PO'" class="text-green-600 dark:text-green-400 text-xs">&#10003;</span>
-                </td>
               </tr>
               <!-- Expanded copy panel -->
               <tr x-show="expandedItem === car.item" x-cloak>
-                <td colspan="13" class="bg-gray-50 dark:bg-gray-800/50 border-b dark:border-gray-700 p-4">
+                <td colspan="12" class="bg-gray-50 dark:bg-gray-800/50 border-b dark:border-gray-700 p-4">
                     <div class="flex gap-2 mb-4 items-center flex-wrap">
                       <span class="text-sm font-medium">文案生成</span>
                       <button @click.stop="generateAll(car.item)" :disabled="generating"
