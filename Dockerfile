@@ -1,6 +1,6 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 make g++ git
 COPY package.json package-lock.json* ./
 RUN npm install
 COPY tsconfig.json ./
@@ -9,7 +9,7 @@ RUN npx tsc
 
 FROM node:22-alpine
 WORKDIR /app
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 make g++ git
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev && rm -rf /root/.npm
 COPY --from=builder /app/dist dist/
