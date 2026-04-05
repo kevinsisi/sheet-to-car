@@ -49,6 +49,10 @@ function app() {
     systemPrompt: '',
     platformPrompts: {},
     showPlatformPrompt: '',
+    activePlatformTab: '',
+    editingPlatformPrompt: '',
+    platformPromptSaved: false,
+    platformPromptSavedMsg: '',
     userPrefs: {},
     teamMembers: [],
 
@@ -561,6 +565,44 @@ function app() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: this.systemPrompt }),
       });
+    },
+
+    async selectPlatformTab(platform) {
+      this.activePlatformTab = platform;
+      this.platformPromptSaved = false;
+      try {
+        const resp = await fetch(`/api/prompts/${encodeURIComponent(platform)}`);
+        const data = await resp.json();
+        this.editingPlatformPrompt = data.content || '';
+      } catch (err) {
+        this.editingPlatformPrompt = this.platformPrompts[platform] || '';
+      }
+    },
+
+    async savePlatformPromptEdit() {
+      if (!this.activePlatformTab) return;
+      await fetch(`/api/prompts/${encodeURIComponent(this.activePlatformTab)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: this.editingPlatformPrompt }),
+      });
+      this.platformPrompts[this.activePlatformTab] = this.editingPlatformPrompt;
+      this.platformPromptSavedMsg = '已儲存';
+      this.platformPromptSaved = true;
+      setTimeout(() => { this.platformPromptSaved = false; }, 3000);
+    },
+
+    async resetPlatformPromptEdit() {
+      if (!this.activePlatformTab) return;
+      const resp = await fetch(`/api/prompts/${encodeURIComponent(this.activePlatformTab)}/reset`, {
+        method: 'POST',
+      });
+      const data = await resp.json();
+      this.editingPlatformPrompt = data.content || '';
+      this.platformPrompts[this.activePlatformTab] = data.content || '';
+      this.platformPromptSavedMsg = '已重置為預設';
+      this.platformPromptSaved = true;
+      setTimeout(() => { this.platformPromptSaved = false; }, 3000);
     },
 
     async savePref(key, value) {

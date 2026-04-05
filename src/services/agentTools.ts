@@ -1,7 +1,8 @@
 import { SchemaType, FunctionDeclaration } from '@google/generative-ai';
 import { getCars, getStats, setPoStatus } from './carInventory';
-import { generateCopy, generateAllCopies, getCopies, setUserPreference } from './copyGenerator';
+import { generateCopy, generateAllCopies, getCopies, setUserPreference, PLATFORMS } from './copyGenerator';
 import { CarRecord } from '../lib/sheets/types';
+import { loadPlatformPrompt, savePlatformPrompt, resetPlatformPrompt } from '../prompts/promptLoader';
 
 /** Tool definitions for Gemini function calling */
 export const toolDeclarations: FunctionDeclaration[] = [
@@ -44,7 +45,7 @@ export const toolDeclarations: FunctionDeclaration[] = [
       type: SchemaType.OBJECT,
       properties: {
         item: { type: SchemaType.STRING, description: '車輛編號' },
-        platform: { type: SchemaType.STRING, description: '平台：官網、8891、Facebook。不填則全部生成' },
+        platform: { type: SchemaType.STRING, description: '平台：官網、Facebook、post-helper。不填則全部生成' },
       },
       required: ['item'],
     },
@@ -59,6 +60,19 @@ export const toolDeclarations: FunctionDeclaration[] = [
         value: { type: SchemaType.STRING, description: '偏好內容' },
       },
       required: ['key', 'value'],
+    },
+  },
+  {
+    name: 'update_platform_prompt',
+    description: '查看或修改平台文案規範（Prompt）。可查看目前內容、套用使用者要求的修改、或重置為預設值。支援平台：官網、Facebook、post-helper',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        platform: { type: SchemaType.STRING, description: '平台名稱：官網、Facebook、post-helper' },
+        action: { type: SchemaType.STRING, description: '動作：view（查看）、update（更新，需提供 content）、reset（重置為預設）' },
+        content: { type: SchemaType.STRING, description: 'action 為 update 時，完整的新 prompt 內容' },
+      },
+      required: ['platform', 'action'],
     },
   },
 ];
@@ -151,6 +165,26 @@ export async function executeTool(name: string, args: any): Promise<string> {
         }
         return reply;
       }
+    }
+
+    case 'update_platform_prompt': {
+      const { platform, action, content } = args;
+      if (!platform || !PLATFORMS.includes(platform)) {
+        return `平台名稱無效，支援：${PLATFORMS.join('、')}`;
+      }
+      if (action === 'view') {
+        const current = loadPlatformPrompt(platform);
+        return `【${platform} 目前 Prompt】\n\n${current}`;
+      } else if (action === 'update') {
+        if (!content || typeof content !== 'string') return '需要提供新的 prompt 內容（content）';
+        savePlatformPrompt(platform, content);
+        return `已更新【${platform}】Prompt。下次生成文案時生效。`;
+      } else if (action === 'reset') {
+        resetPlatformPrompt(platform);
+        const restored = loadPlatformPrompt(platform);
+        return `已重置【${platform}】Prompt 為預設值。\n\n${restored}`;
+      }
+      return 'action 必須是 view、update 或 reset';
     }
 
     case 'remember_preference': {

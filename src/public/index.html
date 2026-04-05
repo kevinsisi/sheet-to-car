@@ -423,19 +423,28 @@
             class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-full font-mono"></textarea>
           <button @click="savePrompt()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm mt-2">儲存 Prompt</button>
 
-          <!-- Built-in platform prompts (read-only) -->
+          <!-- Platform prompts (editable) -->
           <div class="mt-6 pt-4 border-t dark:border-gray-700">
-            <h3 class="font-medium mb-2">內建平台規範（唯讀）</h3>
-            <div class="flex gap-2 mb-2">
-              <template x-for="p in ['官網', '8891', 'Facebook']" :key="p">
-                <button @click="showPlatformPrompt = showPlatformPrompt === p ? '' : p"
-                  :class="showPlatformPrompt === p ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'"
-                  class="px-3 py-1 rounded text-xs" x-text="p"></button>
+            <h3 class="font-medium mb-1">平台文案規範</h3>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">可直接編輯各平台的 Prompt，儲存後立即生效。重置會還原為內建預設。</p>
+            <div class="flex gap-2 mb-3">
+              <template x-for="p in ['官網', 'Facebook', 'post-helper']" :key="p">
+                <button @click="selectPlatformTab(p)"
+                  :class="activePlatformTab === p ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'"
+                  class="px-3 py-1 rounded text-xs font-medium" x-text="p"></button>
               </template>
             </div>
-            <pre x-show="showPlatformPrompt" x-cloak
-              class="bg-gray-50 dark:bg-gray-900 border dark:border-gray-700 rounded-lg p-4 text-xs whitespace-pre-wrap max-h-64 overflow-y-auto font-mono"
-              x-text="platformPrompts[showPlatformPrompt] || ''"></pre>
+            <div x-show="activePlatformTab" x-cloak>
+              <textarea x-model="editingPlatformPrompt" rows="16"
+                class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-xs w-full font-mono"></textarea>
+              <div class="flex gap-2 mt-2">
+                <button @click="savePlatformPromptEdit()"
+                  class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">儲存</button>
+                <button @click="resetPlatformPromptEdit()"
+                  class="bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg text-sm">重置為預設</button>
+                <span x-show="platformPromptSaved" x-cloak class="text-green-600 dark:text-green-400 text-sm self-center" x-text="platformPromptSavedMsg"></span>
+              </div>
+            </div>
           </div>
         </div>
 

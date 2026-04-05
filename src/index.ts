@@ -7,6 +7,7 @@ import apiRouter from './routes/api';
 import chatRouter from './routes/chat';
 import settingsRouter from './routes/settings';
 import copiesRouter from './routes/copies';
+import promptsRouter from './routes/prompts';
 import { cleanExpiredCopies } from './services/copyGenerator';
 
 dotenv.config();
@@ -26,6 +27,7 @@ app.use('/api', apiRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/copies', copiesRouter);
+app.use('/api/prompts', promptsRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
