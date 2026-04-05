@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
-    "@kevinsisi/ai-core": "file:../../ai-core",
+    "@kevinsisi/ai-core": "github:kevinsisi/ai-core",
     "better-sqlite3": "^11.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.0.0",
