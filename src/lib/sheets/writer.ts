@@ -14,67 +14,60 @@ export async function updateCarField(
   const auth = await authorize();
   const sheets = google.sheets({ version: 'v4', auth });
 
-  // Read header row to find column
-  const headerResp = await sheets.spreadsheets.values.get({
+  // 1. Find the actual header row dynamically
+  const fullSheetResp = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: '整合庫存!1:1',
+    range: '整合庫存!A1:Z10', // Scan first 10 rows
   });
-  const headers = headerResp.data.values?.[0] || [];
+  const rows = fullSheetResp.data.values || [];
+  let headerIdx = -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].some((cell: string) => {
+      const c = (cell || '').toLowerCase().trim();
+      return c === 'item' || c === 'brand' || c === '項目' || c === '負責人';
+    })) {
+      headerIdx = i;
+      break;
+    }
+  }
+
+  if (headerIdx === -1) {
+    console.warn('[writer] Could not find header row, defaulting to row 0');
+    headerIdx = 0;
+  }
+
+  const headers = rows[headerIdx] || [];
   let colIndex = headers.findIndex((h: string) => (h || '').trim() === headerName);
 
-  // If column doesn't exist, expand grid and append it
+  // If column doesn't exist, append it to the header row
   if (colIndex === -1) {
     colIndex = headers.length;
-
-    // Get sheet ID and current column count
-    const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties)' });
-    const sheet = meta.data.sheets?.find(s => s.properties?.title === '整合庫存');
-    if (sheet && sheet.properties) {
-      const currentCols = sheet.properties.gridProperties?.columnCount || 0;
-      if (colIndex >= currentCols) {
-        // Expand grid to fit new column
-        await sheets.spreadsheets.batchUpdate({
-          spreadsheetId,
-          requestBody: {
-            requests: [{
-              appendDimension: {
-                sheetId: sheet.properties.sheetId!,
-                dimension: 'COLUMNS',
-                length: colIndex - currentCols + 1,
-              },
-            }],
-          },
-        });
-        console.log(`[writer] Expanded grid from ${currentCols} to ${colIndex + 1} columns`);
-      }
-    }
-
     const colLetter = indexToColumn(colIndex);
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `整合庫存!${colLetter}1`,
+      range: `整合庫存!${colLetter}${headerIdx + 1}`,
       valueInputOption: 'RAW',
       requestBody: { values: [[headerName]] },
     });
-    console.log(`[writer] Created new column "${headerName}" at ${colLetter}`);
+    console.log(`[writer] Created new column "${headerName}" at ${colLetter}${headerIdx + 1}`);
   }
 
-  // Find the row by item
-  const itemResp = await sheets.spreadsheets.values.get({
+  // 2. Find the row by item, searching AFTER the header
+  const dataResp = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: '整合庫存!A:A',
   });
-  const items = itemResp.data.values || [];
+  const allItems = dataResp.data.values || [];
   let rowIndex = -1;
-  for (let i = 0; i < items.length; i++) {
-    if ((items[i][0] || '').trim() === item) {
-      rowIndex = i + 1; // 1-based
+  for (let i = headerIdx + 1; i < allItems.length; i++) {
+    if ((allItems[i][0] || '').trim() === item) {
+      rowIndex = i + 1; // 1-based absolute row
       break;
     }
   }
 
   if (rowIndex === -1) {
-    console.warn(`[writer] Item "${item}" not found in 整合庫存`);
+    console.warn(`[writer] Item "${item}" not found in 整合庫存 after header row ${headerIdx + 1}`);
     return false;
   }
 
