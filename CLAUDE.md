@@ -144,7 +144,11 @@ Google OAuth credentials are stored as JSON in the `settings` table (see `src/li
 
 ## Deployment
 
-Docker multi-stage build (builder → runtime on Node 22 Alpine):
+Docker multi-stage build (builder → runtime on Node 22 Bookworm):
+
+- **Builder**: `node:22-bookworm` (glibc consistent)
+- **Runtime**: `node:22-bookworm-slim`
+- **Hybrid Support**: Supports `INTERNAL_GIT_MIRROR` ARG for Git `insteadOf` redirection.
 
 ```bash
 docker build -t sheet-to-car .
