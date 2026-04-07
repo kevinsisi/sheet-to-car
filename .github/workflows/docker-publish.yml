@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKERHUB_USERNAME: kevin950805
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
 jobs:
   build-and-push:
