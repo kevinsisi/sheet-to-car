@@ -34,7 +34,7 @@ export async function authorize(): Promise<any> {
         scopes: SCOPES,
       });
       return await auth.getClient();
-    } catch (err) {
+    } catch (_err) {
       console.warn('[auth] Service account failed, trying next strategy');
     }
   }
