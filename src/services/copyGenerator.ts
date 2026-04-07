@@ -116,6 +116,12 @@ export async function generateCopy(car: CarRecord, platform: Platform): Promise<
     return text;
   });
 
+  // Remove existing draft to prevent duplicates
+  db.prepare(`
+    DELETE FROM car_copies 
+    WHERE item = ? AND platform = ? AND status = 'draft'
+  `).run(car.item, platform);
+
   // Save to DB
   db.prepare(`
     INSERT INTO car_copies (item, platform, content, status)
@@ -127,6 +133,12 @@ export async function generateCopy(car: CarRecord, platform: Platform): Promise<
 
 /** Generate copies for all platforms */
 export async function generateAllCopies(car: CarRecord): Promise<Record<Platform, string>> {
+  // Clear all existing drafts for this car before regenerating all
+  db.prepare(`
+    DELETE FROM car_copies 
+    WHERE item = ? AND status = 'draft'
+  `).run(car.item);
+
   const results: Record<string, string> = {};
   for (const platform of PLATFORMS) {
     results[platform] = await generateCopy(car, platform);

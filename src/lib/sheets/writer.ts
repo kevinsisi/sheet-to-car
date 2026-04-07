@@ -53,9 +53,16 @@ export async function updateCarField(
   }
 
   // 2. Find the row by item, searching AFTER the header
+  const itemHeader = headers.find((h: string) => {
+    const c = (h || '').toLowerCase().trim();
+    return c === 'item' || c === '項目';
+  });
+  const itemColIndex = itemHeader ? headers.indexOf(itemHeader) : 0;
+  const itemColLetter = indexToColumn(itemColIndex);
+
   const dataResp = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: '整合庫存!A:A',
+    range: `整合庫存!${itemColLetter}:${itemColLetter}`,
   });
   const allItems = dataResp.data.values || [];
   let rowIndex = -1;
