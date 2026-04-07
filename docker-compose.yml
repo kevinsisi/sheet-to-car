@@ -9,6 +9,7 @@ services:
       - sheet-to-car-data:/app/data
       - ./service-account.json:/app/service-account.json:ro
     environment:
+      - TZ=Asia/Taipei
       - NODE_ENV=production
       - PORT=3000
       - SPREADSHEET_ID=${SPREADSHEET_ID}
