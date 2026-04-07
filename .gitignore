@@ -8,3 +8,6 @@ token.json
 key/
 get-token.js
 *.db
+
+# Claude Code worktree residuals
+.claude/
