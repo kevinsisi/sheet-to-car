@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, Content, Part, FunctionCallPart, FunctionResponsePart } from '@google/generative-ai';
+import { GoogleGenerativeAI, Content, Part, FunctionResponsePart } from '@google/generative-ai';
 import { withStreamRetry } from './geminiRetry';
 import { getGeminiModel, trackUsage } from './geminiKeys';
 import { toolDeclarations, executeTool } from './agentTools';

@@ -1,6 +1,6 @@
 import { SchemaType, FunctionDeclaration } from '@google/generative-ai';
 import { getCars, getStats, setPoStatus } from './carInventory';
-import { generateCopy, generateAllCopies, getCopies, setUserPreference, PLATFORMS } from './copyGenerator';
+import { generateCopy, generateAllCopies, setUserPreference, PLATFORMS } from './copyGenerator';
 import { CarRecord } from '../lib/sheets/types';
 import { loadPlatformPrompt, savePlatformPrompt, resetPlatformPrompt } from '../prompts/promptLoader';
 
