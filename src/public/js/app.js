@@ -577,6 +577,7 @@ function app() {
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
+          await Promise.all([this.loadCopies(item), this.loadCopySummary(), this.load8891ValidationBlockers()]);
           this.finishGeneration(item, '全部', err.error || '全部文案生成失敗');
           return;
         }
@@ -598,6 +599,7 @@ function app() {
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
+          await Promise.all([this.loadCopies(item), this.loadCopySummary(), this.load8891ValidationBlockers()]);
           this.finishGeneration(item, platform, err.error || `${platform} 文案生成失敗`);
           return;
         }

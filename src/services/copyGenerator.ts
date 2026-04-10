@@ -106,10 +106,16 @@ function getPlatformSkills(platform: Platform): LoadedSkill[] {
 
 function parseGeneratedJson(content: string): any | null {
   try {
-    return JSON.parse(content);
+    return JSON.parse(stripMarkdownCodeFence(content));
   } catch {
     return null;
   }
+}
+
+function stripMarkdownCodeFence(content: string): string {
+  const trimmed = String(content || '').trim();
+  const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fenceMatch ? fenceMatch[1].trim() : trimmed;
 }
 
 function normalize8891Json(data: any): any {
@@ -560,7 +566,7 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
   const finalized = platform === '8891'
     ? finalize8891Content(rawResult)
     : {
-        content: rawResult,
+        content: stripMarkdownCodeFence(rawResult),
         validationHints: [] as CopyReviewHint[],
         validationSummary: { status: 'ready' as const, errorCount: 0, warningCount: 0 },
       };
