@@ -5,7 +5,7 @@ import { CarRecord } from '../lib/sheets/types';
 import db from '../db/connection';
 import { loadPlatformPrompt } from '../prompts/promptLoader';
 import { LoadedSkill, selectSkillsFor8891 } from './skillLoader';
-import { getConfirmedVehicleContext } from './vehicleAnalysis';
+import { getConfirmedVehicleContext, getConfirmedVehicleFieldMap } from './vehicleAnalysis';
 import { getVinDecodeForCar, VinDecodeRecord } from './vinDecode';
 
 const PLATFORMS = ['官網', 'Facebook', '8891'] as const;
@@ -175,6 +175,143 @@ function buildVinDecodeBlock(vinDecode: VinDecodeRecord | null): string {
 - 變速箱: ${vinDecode.transmissionStyle || '未提供'}`;
 }
 
+function parseFirstInteger(input: string): number | undefined {
+  const match = (input || '').replace(/,/g, '').match(/\d+/);
+  if (!match) return undefined;
+  const value = Number(match[0]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function parseMileage(input: string): number {
+  const raw = (input || '').trim().replace(/,/g, '');
+  if (!raw) return 0;
+
+  if (raw.includes('萬')) {
+    const value = Number(raw.replace('萬', ''));
+    if (Number.isFinite(value)) return Math.round(value * 10000);
+  }
+
+  const numeric = Number(raw.replace(/[^\d.]/g, ''));
+  return Number.isFinite(numeric) ? Math.round(numeric) : 0;
+}
+
+function parsePrice(input: string): number {
+  const value = parseFirstInteger(input || '');
+  return value ?? 0;
+}
+
+function normalizeTransmission(value?: string): 'automatic' | 'manual' | 'cvt' | 'dct' | undefined {
+  const text = (value || '').toLowerCase();
+  if (!text) return undefined;
+  if (text.includes('manual') || text.includes('手排')) return 'manual';
+  if (text.includes('cvt')) return 'cvt';
+  if (text.includes('dct') || text.includes('dual') || text.includes('雙離合')) return 'dct';
+  if (text.includes('automatic') || text.includes('auto') || text.includes('自排')) return 'automatic';
+  return undefined;
+}
+
+function normalizeFuelType(value?: string): 'gasoline' | 'diesel' | 'hybrid' | 'electric' | 'plugin_hybrid' | undefined {
+  const text = (value || '').toLowerCase();
+  if (!text) return undefined;
+  if (text.includes('plugin') || text.includes('phev')) return 'plugin_hybrid';
+  if (text.includes('hybrid') || text.includes('油電')) return 'hybrid';
+  if (text.includes('electric') || text.includes('ev') || text.includes('純電')) return 'electric';
+  if (text.includes('diesel') || text.includes('柴油')) return 'diesel';
+  if (text.includes('gasoline') || text.includes('petrol') || text.includes('汽油')) return 'gasoline';
+  return undefined;
+}
+
+function normalizeBodyType(value?: string, model = ''): 'sedan' | 'suv' | 'hatchback' | 'coupe' | 'convertible' | 'wagon' | 'van' | 'truck' | 'mpv' | undefined {
+  const text = `${value || ''} ${model}`.toLowerCase();
+  if (!text) return undefined;
+  if (text.includes('convertible') || text.includes('spyder') || text.includes('spider') || text.includes('cabrio') || text.includes('敞篷')) return 'convertible';
+  if (text.includes('suv') || text.includes('cullinan') || text.includes('urus') || text.includes('cayenne')) return 'suv';
+  if (text.includes('wagon') || text.includes('estate') || text.includes('旅行')) return 'wagon';
+  if (text.includes('hatchback')) return 'hatchback';
+  if (text.includes('van')) return 'van';
+  if (text.includes('truck')) return 'truck';
+  if (text.includes('mpv')) return 'mpv';
+  if (text.includes('coupe') || text.includes('gt') || text.includes('911') || text.includes('roma') || text.includes('f8')) return 'coupe';
+  if (text.includes('sedan') || text.includes('ghost') || text.includes('flying spur') || text.includes('s-class')) return 'sedan';
+  return undefined;
+}
+
+function normalizeDrivetrain(value?: string): '2WD' | '4WD' | 'AWD' | undefined {
+  const text = (value || '').toUpperCase();
+  if (!text) return undefined;
+  if (text.includes('AWD')) return 'AWD';
+  if (text.includes('4WD')) return '4WD';
+  if (text.includes('2WD') || text.includes('RWD') || text.includes('FWD')) return '2WD';
+  return undefined;
+}
+
+function pickConfirmedValue(fieldMap: Record<string, string[]>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = fieldMap[key]?.[0];
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function build8891DraftJson(car: CarRecord, member: TeamMember, vinDecode: VinDecodeRecord | null): string {
+  const confirmed = getConfirmedVehicleFieldMap(car.item);
+  const draft = {
+    basic: {
+      brand: car.brand || vinDecode?.make || '',
+      model: car.model || vinDecode?.model || '',
+      year: parseFirstInteger(car.year || vinDecode?.year || '') || 2020,
+      mileage: parseMileage(car.mileage),
+      price: 0,
+    },
+    specs: {
+      color: car.exteriorColor || undefined,
+      interiorColor: car.interiorColor || undefined,
+      engineDisplacement: parseFirstInteger(pickConfirmedValue(confirmed, 'specs.engineDisplacement') || '')
+        || (vinDecode?.engineDisplacementL ? Math.round(Number(vinDecode.engineDisplacementL) * 1000) : undefined),
+      transmission: normalizeTransmission(
+        pickConfirmedValue(confirmed, 'specs.transmission') || vinDecode?.transmissionStyle
+      ),
+      fuelType: normalizeFuelType(
+        pickConfirmedValue(confirmed, 'specs.fuelType') || vinDecode?.fuelType
+      ),
+      bodyType: normalizeBodyType(
+        pickConfirmedValue(confirmed, 'specs.bodyType') || vinDecode?.bodyClass,
+        car.model,
+      ),
+      doors: parseFirstInteger(pickConfirmedValue(confirmed, 'specs.doors') || vinDecode?.doors || ''),
+      seats: parseFirstInteger(pickConfirmedValue(confirmed, 'specs.seats') || ''),
+      drivetrain: normalizeDrivetrain(
+        pickConfirmedValue(confirmed, 'specs.drivetrain') || vinDecode?.driveType
+      ),
+      horsepower: parseFirstInteger(pickConfirmedValue(confirmed, 'specs.horsepower') || vinDecode?.horsepower || ''),
+      torque: parseFirstInteger(pickConfirmedValue(confirmed, 'specs.torque') || ''),
+      vin: car.vin || undefined,
+    },
+    contact: {
+      name: member.name,
+      mobile: member.phone,
+      phone: '02-2794-9910',
+      lineId: member.line_id,
+      location: {
+        city: '台北市',
+        district: '內湖區',
+        address: '行忠路57號',
+      },
+    },
+    listing: {
+      title: '',
+      description: '',
+      highlightFeatures: [] as string[],
+    },
+    metadata: {
+      source: 'sheet-to-car',
+      version: '1.5.0',
+    },
+  };
+
+  return JSON.stringify(draft, null, 2);
+}
+
 async function buildPrompt(car: CarRecord, platform: Platform, member: TeamMember, prefs: Record<string, string>): Promise<string> {
   const customPrompt = getCustomPrompt();
   const contactBlock = buildContactBlock(member);
@@ -235,6 +372,16 @@ async function buildPrompt(car: CarRecord, platform: Platform, member: TeamMembe
   }
 
   prompt += buildVinDecodeBlock(vinDecode);
+
+  if (platform === '8891') {
+    prompt += `\n\n## 8891 JSON Draft（已按 post-helper schema 預先組好，請保留整體結構，只補齊合理內容）\n${build8891DraftJson(car, member, vinDecode)}`;
+    prompt += `\n\n重要：
+- 請輸出與 draft 相同的 JSON 結構。
+- basic/specs/contact 的已知欄位優先沿用 draft。
+- 只在 listing.title / listing.description / listing.highlightFeatures 與少數缺值規格欄位做保守補充。
+- 不要新增 post-helper schema 之外的欄位。
+- 若欄位沒有足夠依據，保持 draft 的空值或既有值，不要硬編。`;
+  }
 
   prompt += `\n\n請根據以上資料，生成${platform}平台的完整文案。直接輸出文案，不要加額外說明。`;
 

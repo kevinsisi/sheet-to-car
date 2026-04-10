@@ -16,6 +16,7 @@
 | Copy reliability metadata | Each saved draft copy persists confirmed-feature count and pending-field count so reliability hints survive reloads |
 | Structured confirmed features | Accepted analysis results are also stored in `vehicle_confirmed_features` so copy generation does not depend only on freeform note/modification text |
 | VIN decode fallback | VIN decode is optional evidence only; failures fall back to cached/basic data plus review hints instead of blocking analysis or copy generation |
+| 8891 structured draft | 8891 generation now prebuilds a post-helper-compatible JSON draft from sheet data, confirmed features, team contact, and VIN decode before asking Gemini to fill the remaining gaps |
 | No ORM | Raw better-sqlite3 SQL; migrations are append-only |
 | CommonJS only | `tsconfig.json` module: commonjs; no ESM imports |
 

@@ -43,6 +43,10 @@ export interface ConfirmedVehicleContext {
   pendingReviewFields: string[];
 }
 
+export interface ConfirmedVehicleFieldMap {
+  [field: string]: string[];
+}
+
 interface ConfirmedFeatureRow {
   source: string;
   field: string;
@@ -399,6 +403,20 @@ export function getConfirmedVehicleContext(item: string): ConfirmedVehicleContex
       ...(photoAnalysis?.reviewHints || []).map(hint => hint.field),
     ])),
   };
+}
+
+export function getConfirmedVehicleFieldMap(item: string): ConfirmedVehicleFieldMap {
+  const rows = db.prepare('SELECT field, value FROM vehicle_confirmed_features WHERE item = ? ORDER BY updated_at DESC, id DESC').all(item) as Array<{ field: string; value: string }>;
+  const result: ConfirmedVehicleFieldMap = {};
+
+  for (const row of rows) {
+    if (!result[row.field]) result[row.field] = [];
+    if (!result[row.field].includes(row.value)) {
+      result[row.field].push(row.value);
+    }
+  }
+
+  return result;
 }
 
 function upsertConfirmedFeature(item: string, source: 'baseline' | 'photo', field: string, value: string): void {
