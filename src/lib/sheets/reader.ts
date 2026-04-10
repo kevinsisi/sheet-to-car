@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { authorize } from './auth';
 import { CarRecord } from './types';
+import { parseInteriorColor } from './parser';
 
 function isTruthy(val: string): boolean {
   const v = (val || '').trim().toLowerCase();
@@ -104,6 +105,9 @@ export async function readCarsFromSheet(spreadsheetId: string): Promise<CarRecor
     const sourceIdx = colMap['來源'] ?? 1;
     const sourceVal = row[sourceIdx] || '';
 
+    const rawInteriorColor = col('內裝色') || '';
+    const parsedInterior = parseInteriorColor(rawInteriorColor);
+
     cars.push({
       item,
       source: sourceVal,
@@ -116,8 +120,8 @@ export async function readCarsFromSheet(spreadsheetId: string): Promise<CarRecor
       condition: col('車況') || '',
       status: col('狀態') || '在庫',
       exteriorColor: col('外觀色') || '',
-      interiorColor: col('內裝色') || '',
-      modification: col('改裝') || '',
+      interiorColor: parsedInterior.color || rawInteriorColor,
+      modification: col('改裝') || parsedInterior.modification || '',
       note: col('備註') || '',
       poStatus: col('PO狀態') || '未PO',
       poOfficial: isTruthy(col('PO_官網') || col('官網')),

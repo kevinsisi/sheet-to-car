@@ -42,6 +42,12 @@ export interface ConfirmedVehicleContext {
   pendingReviewFields: string[];
 }
 
+interface ConfirmedFeatureRow {
+  source: string;
+  field: string;
+  value: string;
+}
+
 export interface UploadedPhotoInput {
   name: string;
   mimeType: string;
@@ -326,17 +332,31 @@ export function getLatestPhotoAnalysis(item: string): VehiclePhotoAnalysisRecord
 }
 
 export function getConfirmedVehicleContext(item: string): ConfirmedVehicleContext {
-  const baseline = getVehicleAnalysis(item);
-  const photo = getLatestPhotoAnalysis(item);
+  const rows = db.prepare('SELECT source, field, value FROM vehicle_confirmed_features WHERE item = ? ORDER BY updated_at DESC, id DESC').all(item) as ConfirmedFeatureRow[];
+  const baseline = rows.filter(row => row.source === 'baseline').map(row => `已確認 ${row.field}：${row.value}`);
+  const photo = rows.filter(row => row.source === 'photo').map(row => `已確認 ${row.field}：${row.value}`);
+  const baseAnalysis = getVehicleAnalysis(item);
+  const photoAnalysis = getLatestPhotoAnalysis(item);
 
   return {
-    confirmedHighlights: (baseline?.baselineFindings || []).filter(finding => finding.startsWith('已確認')),
-    confirmedPhotoFindings: (photo?.findings || []).filter(finding => finding.startsWith('已確認')),
+    confirmedHighlights: baseline,
+    confirmedPhotoFindings: photo,
     pendingReviewFields: Array.from(new Set([
-      ...(baseline?.reviewHints || []).map(hint => hint.field),
-      ...(photo?.reviewHints || []).map(hint => hint.field),
+      ...(baseAnalysis?.reviewHints || []).map(hint => hint.field),
+      ...(photoAnalysis?.reviewHints || []).map(hint => hint.field),
     ])),
   };
+}
+
+function upsertConfirmedFeature(item: string, source: 'baseline' | 'photo', field: string, value: string): void {
+  const normalized = value.trim();
+  if (!normalized) return;
+
+  db.prepare(`
+    INSERT INTO vehicle_confirmed_features (item, source, field, value, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(item, source, field, value) DO UPDATE SET updated_at = datetime('now')
+  `).run(item, source, field, normalized);
 }
 
 export async function analyzeVehiclePhotos(car: CarRecord, uploads: UploadedPhotoInput[]): Promise<VehiclePhotoAnalysisRecord> {
@@ -524,6 +544,7 @@ export function applyReviewDecision(
 
   if (decision === 'accept') {
     updateCarFieldFromReview(item, field, value);
+    upsertConfirmedFeature(item, source, field, value);
   }
 
   updateAnalysisStatus(item);

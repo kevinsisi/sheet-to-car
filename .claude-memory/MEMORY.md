@@ -14,6 +14,7 @@
 | 8891 skill guardrails | 8891 generation auto-loads local skill rules and returns review hints for inferred fields |
 | Vehicle analysis MVP | New cars auto-run baseline analysis after bootstrap, dashboard shows pending-attention cars, expanded rows support photo-based Gemini analysis, review hints can be accepted/ignored with accepted values merged back into car data, and copy generation explicitly consumes confirmed findings while treating unresolved fields as non-facts |
 | Copy reliability metadata | Each saved draft copy persists confirmed-feature count and pending-field count so reliability hints survive reloads |
+| Structured confirmed features | Accepted analysis results are also stored in `vehicle_confirmed_features` so copy generation does not depend only on freeform note/modification text |
 | No ORM | Raw better-sqlite3 SQL; migrations are append-only |
 | CommonJS only | `tsconfig.json` module: commonjs; no ESM imports |
 

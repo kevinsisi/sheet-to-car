@@ -406,6 +406,11 @@
                             <button @click.stop="deleteCopy(copy.id)" class="text-red-500 dark:text-red-400 text-xs">刪除</button>
                           </div>
                         </div>
+                        <div class="px-4 py-2 text-xs bg-emerald-50 dark:bg-emerald-900/20 border-b border-emerald-100 dark:border-emerald-900/30 text-emerald-700 dark:text-emerald-300">
+                          <span x-text="'已用 ' + (copy.confirmed_feature_count || 0) + ' 個已確認特徵'"></span>
+                          <span>，</span>
+                          <span x-text="'尚有 ' + (copy.pending_field_count || 0) + ' 個未確認欄位'"></span>
+                        </div>
                         <pre class="p-4 text-sm whitespace-pre-wrap text-gray-800 dark:text-gray-200 max-h-64 overflow-y-auto" x-text="copy.content"></pre>
                       </div>
                     </template>
