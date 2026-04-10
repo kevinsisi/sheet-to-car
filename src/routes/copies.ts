@@ -158,6 +158,41 @@ router.get('/summary/all', (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/copies/validation/8891-blockers
+router.get('/validation/8891-blockers', (_req: Request, res: Response) => {
+  try {
+    const rows = db.prepare(`
+      SELECT cc.item, cc.platform, cc.validation_error_count, cc.validation_warning_count, cc.created_at,
+             c.brand, c.model, c.year
+      FROM car_copies cc
+      JOIN cars c ON c.item = cc.item
+      JOIN (
+        SELECT item, MAX(created_at) AS latest_created_at
+        FROM car_copies
+        WHERE platform = '8891'
+        GROUP BY item
+      ) latest ON latest.item = cc.item AND latest.latest_created_at = cc.created_at
+      WHERE cc.platform = '8891' AND cc.validation_status = 'error'
+      ORDER BY cc.created_at DESC
+    `).all() as any[];
+
+    return res.json({
+      items: rows.map(row => ({
+        item: row.item,
+        platform: row.platform,
+        brand: row.brand,
+        model: row.model,
+        year: row.year,
+        validationErrorCount: row.validation_error_count,
+        validationWarningCount: row.validation_warning_count,
+        createdAt: row.created_at,
+      })),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ══════════════════════════════════════════════════════
 // Parameterized routes LAST (catch-all patterns)
 // ══════════════════════════════════════════════════════

@@ -1,5 +1,37 @@
 function app() {
   const REQUIRED_COPY_PLATFORMS = 3;
+  const CURRENT_APP_VERSION = '1.6.0';
+  const LAST_SEEN_VERSION_KEY = 'sheet-to-car:last-seen-version';
+  const CHANGELOG = [
+    {
+      version: '1.6.0',
+      notes: [
+        '8891 會先做 post-helper 相容驗證，直接顯示可用、警告或阻塞問題。',
+        '儀表板會集中列出 8891 待修正車輛，可直接跳到該車處理。',
+        '新車分析支援照片判讀與人工確認後回寫車輛資料。',
+        '文案生成會明確吃已確認特徵與 VIN decode 輔助資訊。',
+      ],
+    },
+    {
+      version: '1.5.0',
+      notes: [
+        '新增新車基礎特徵分析與待注意提醒。',
+        '支援照片分析改裝、特仕線索與可補進介紹的句子。',
+        '每份文案會顯示已確認特徵數與未確認欄位數。',
+      ],
+    },
+  ];
+
+  function compareVersions(a, b) {
+    const aParts = String(a || '').split('.').map(n => Number(n) || 0);
+    const bParts = String(b || '').split('.').map(n => Number(n) || 0);
+    const max = Math.max(aParts.length, bParts.length);
+    for (let i = 0; i < max; i++) {
+      const diff = (aParts[i] || 0) - (bParts[i] || 0);
+      if (diff !== 0) return diff;
+    }
+    return 0;
+  }
 
   return {
     view: 'dashboard',
@@ -19,6 +51,10 @@ function app() {
     copyToast: '',
     selectedItems: new Set(),
     pendingAnalyses: [],
+    validationBlockers8891: [],
+    showUpdateModal: false,
+    updateNotes: [],
+    currentVersion: CURRENT_APP_VERSION,
 
     // Pagination
     page: 1,
@@ -68,7 +104,8 @@ function app() {
 
     async init() {
       this.applyDark();
-      await Promise.all([this.loadCars(true), this.loadStats(), this.checkBatchStatus(), this.loadCopySummary(), this.loadPendingAnalyses()]);
+      this.prepareVersionUpdateNotice();
+      await Promise.all([this.loadCars(true), this.loadStats(), this.checkBatchStatus(), this.loadCopySummary(), this.loadPendingAnalyses(), this.load8891ValidationBlockers()]);
 
       // Watch filters — reload on change
       this.$watch('filter.status', () => this.loadCars(true));
@@ -106,6 +143,32 @@ function app() {
         const data = await resp.json();
         this.pendingAnalyses = data.items || [];
       } catch {}
+    },
+
+    async load8891ValidationBlockers() {
+      try {
+        const resp = await fetch('/api/copies/validation/8891-blockers');
+        const data = await resp.json();
+        this.validationBlockers8891 = data.items || [];
+      } catch {}
+    },
+
+    prepareVersionUpdateNotice() {
+      const lastSeenVersion = localStorage.getItem(LAST_SEEN_VERSION_KEY) || '0.0.0';
+      const unseen = CHANGELOG.filter(entry => compareVersions(entry.version, lastSeenVersion) > 0)
+        .sort((a, b) => compareVersions(b.version, a.version));
+
+      if (unseen.length === 0) {
+        return;
+      }
+
+      this.updateNotes = unseen.flatMap(entry => entry.notes.map(note => ({ version: entry.version, text: note })));
+      this.showUpdateModal = true;
+    },
+
+    dismissUpdateModal() {
+      localStorage.setItem(LAST_SEEN_VERSION_KEY, CURRENT_APP_VERSION);
+      this.showUpdateModal = false;
     },
 
     getCopyStatus(item) {
@@ -244,7 +307,7 @@ function app() {
       this.syncing = true;
       try {
         await fetch('/api/sync', { method: 'POST' });
-        await Promise.all([this.loadCars(true), this.loadStats(), this.loadPendingAnalyses()]);
+        await Promise.all([this.loadCars(true), this.loadStats(), this.loadPendingAnalyses(), this.load8891ValidationBlockers()]);
       } catch (err) {
         alert('同步失敗: ' + err.message);
       }
@@ -379,7 +442,7 @@ function app() {
 
         const data = await resp.json();
         this.expandedPhotoAnalysis = data.photoAnalysis || null;
-        await this.loadPendingAnalyses();
+        await Promise.all([this.loadPendingAnalyses(), this.load8891ValidationBlockers()]);
         this.analysisPhotoFiles = [];
         this.copyToast = `${item} 照片分析完成`;
       } catch (err) {
@@ -400,7 +463,7 @@ function app() {
           return;
         }
         this.expandedAnalysis = await resp.json();
-        await this.loadPendingAnalyses();
+        await Promise.all([this.loadPendingAnalyses(), this.load8891ValidationBlockers()]);
         this.copyToast = `${item} 已重新完成基礎分析`;
       } catch (err) {
         this.copyToast = '重新分析失敗: ' + err.message;
@@ -461,7 +524,7 @@ function app() {
         this.expandedAnalysis = data.analysis;
         this.expandedPhotoAnalysis = data.photoAnalysis;
         delete this.reviewDrafts[key];
-        await Promise.all([this.loadPendingAnalyses(), this.loadCars(true)]);
+        await Promise.all([this.loadPendingAnalyses(), this.loadCars(true), this.load8891ValidationBlockers()]);
         this.copyToast = decision === 'accept' ? '已接受並更新資料' : '已忽略此提示';
       } catch (err) {
         this.copyToast = '處理確認失敗: ' + err.message;
@@ -518,7 +581,7 @@ function app() {
           return;
         }
         this.lastGenerationInfo = null;
-        await Promise.all([this.loadCopies(item), this.loadCopySummary()]);
+        await Promise.all([this.loadCopies(item), this.loadCopySummary(), this.load8891ValidationBlockers()]);
         this.finishGeneration(item, '全部', `${item} 全部文案已生成`);
       } catch (err) {
         this.finishGeneration(item, '全部', '生成失敗: ' + err.message);
@@ -544,7 +607,7 @@ function app() {
           confirmedFeatureCount: data.generationContext?.confirmedFeatureCount || 0,
           pendingFieldCount: data.generationContext?.pendingFieldCount || 0,
         };
-        await Promise.all([this.loadCopies(item), this.loadCopySummary()]);
+        await Promise.all([this.loadCopies(item), this.loadCopySummary(), this.load8891ValidationBlockers()]);
         this.finishGeneration(item, platform, `${item} ${platform} 文案已生成`);
       } catch (err) {
         this.finishGeneration(item, platform, '生成失敗: ' + err.message);

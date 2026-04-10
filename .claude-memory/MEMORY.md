@@ -19,6 +19,7 @@
 | 8891 structured draft | 8891 generation now prebuilds a post-helper-compatible JSON draft from sheet data, confirmed features, team contact, and VIN decode before asking Gemini to fill the remaining gaps |
 | 8891 compatibility validation | Generated 8891 JSON is normalized and validated against post-helper's required basic/spec rules before being saved, with problems surfaced as review hints |
 | 8891 validation summary | Each saved 8891 copy persists validation status plus error/warning counts so the UI can show readiness for post-helper without opening the JSON |
+| Frontend update modal | The SPA tracks the last seen app version in localStorage and shows changelog-driven release notes once per version |
 | No ORM | Raw better-sqlite3 SQL; migrations are append-only |
 | CommonJS only | `tsconfig.json` module: commonjs; no ESM imports |
 

@@ -30,6 +30,26 @@
   </style>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900 min-h-screen text-gray-900 dark:text-gray-100 transition-colors" x-data="app()" x-init="init()">
+  <div x-show="showUpdateModal" x-cloak class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+    <div class="w-full max-w-xl bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border dark:border-gray-700 overflow-hidden">
+      <div class="px-6 py-4 border-b dark:border-gray-700">
+        <div class="text-lg font-bold">在你不在的時候，我們加入了...</div>
+        <div class="text-sm text-gray-500 dark:text-gray-400 mt-1" x-text="'目前版本 ' + currentVersion"></div>
+      </div>
+      <div class="px-6 py-5 space-y-3 max-h-[60vh] overflow-y-auto">
+        <template x-for="entry in updateNotes" :key="entry.version + entry.text">
+          <div class="flex gap-3 text-sm">
+            <span class="text-blue-600 dark:text-blue-400 font-semibold min-w-16" x-text="entry.version"></span>
+            <span class="text-gray-700 dark:text-gray-200" x-text="entry.text"></span>
+          </div>
+        </template>
+      </div>
+      <div class="px-6 py-4 bg-gray-50 dark:bg-gray-900/40 border-t dark:border-gray-700 flex justify-end">
+        <button @click="dismissUpdateModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">我知道了</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Navigation -->
   <nav class="bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700">
     <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -96,6 +116,33 @@
                   </div>
                 </div>
                 <div class="text-xs text-amber-700 dark:text-amber-300 whitespace-nowrap">點擊查看</div>
+              </div>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <div x-show="validationBlockers8891.length > 0" class="bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 p-4 mb-4">
+        <div class="flex items-center justify-between mb-3 gap-4 flex-wrap">
+          <div>
+            <div class="text-sm text-red-700 dark:text-red-300 font-medium">8891 待修正</div>
+            <div class="text-xs text-red-600 dark:text-red-400">這些車的 8891 JSON 仍有阻塞問題，現在還不適合直接丟進 post-helper。</div>
+          </div>
+          <div class="text-sm font-semibold text-red-700 dark:text-red-300" x-text="validationBlockers8891.length + ' 台待修正'"></div>
+        </div>
+        <div class="space-y-2">
+          <template x-for="entry in validationBlockers8891" :key="entry.item + entry.createdAt">
+            <button @click="jumpToAnalysis(entry.item)" class="w-full text-left bg-white dark:bg-gray-800 rounded-lg border border-red-200 dark:border-red-900/40 px-4 py-3 hover:border-red-300 dark:hover:border-red-700 transition">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <div class="font-medium text-sm"><span x-text="entry.item"></span> <span x-text="entry.brand + ' ' + entry.model"></span></div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    <span x-text="'阻塞問題 ' + entry.validationErrorCount + ' 個'"></span>
+                    <span x-show="entry.validationWarningCount > 0">，</span>
+                    <span x-show="entry.validationWarningCount > 0" x-text="'警告 ' + entry.validationWarningCount + ' 個'"></span>
+                  </div>
+                </div>
+                <div class="text-xs text-red-700 dark:text-red-300 whitespace-nowrap">點擊修正</div>
               </div>
             </button>
           </template>

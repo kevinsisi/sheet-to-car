@@ -18,6 +18,8 @@
 - 8891 產出在不改變外部 JSON 形狀的前提下，必須先組出與 post-helper schema 相容的 draft 結構，再由模型保守補齊缺值與 listing 文案。
 - 8891 生成完成後，需在 sheet-to-car 端做與 post-helper 相容的基本驗證與常見值正規化；若不合法，必須回傳 review hints 而非直接把錯資料交給上傳工具。
 - 每份 8891 copy 需持久保存 validation summary，讓 UI 能直接顯示是否可直接交給 post-helper、是否僅有警告、或有阻塞問題。
+- Dashboard 應集中列出有 8891 阻塞問題的車，並支援一鍵跳到對應車輛處理。
+- 前端應在使用者第一次打開新版本時顯示版本更新提示，內容由 changelog 資料驅動，而不是寫死在 modal 模板中。
 
 ## Success Criteria
 - [x] 新車同步後會自動建立 baseline analysis。
