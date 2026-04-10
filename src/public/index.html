@@ -291,6 +291,10 @@
               <!-- Expanded copy panel -->
               <tr x-show="expandedItem === car.item" x-cloak>
                 <td colspan="12" class="bg-gray-50 dark:bg-gray-800/50 border-b dark:border-gray-700 p-4">
+                    <div class="mb-3 text-sm font-medium text-gray-700 dark:text-gray-200">
+                      目前展開車輛：<span class="font-mono" x-text="car.item"></span>
+                      <span x-text="car.brand + ' ' + car.model"></span>
+                    </div>
                     <div class="flex gap-2 mb-4 items-center flex-wrap">
                       <span class="text-sm font-medium">文案生成</span>
                       <button @click.stop="generateAll(car.item)" :disabled="isItemGenerating(car.item)"

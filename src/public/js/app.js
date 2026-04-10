@@ -218,6 +218,15 @@ function app() {
     },
 
     // ── Dashboard ──
+    clearExpandedState() {
+      this.expandedItem = null;
+      this.expandedCopies = [];
+      this.expandedAnalysis = null;
+      this.expandedPhotoAnalysis = null;
+      this.lastGenerationInfo = null;
+      this.analysisPhotoFiles = [];
+    },
+
     get filteredCars() {
       // Filtering is now server-side; just return loaded cars
       return this.cars;
@@ -278,6 +287,9 @@ function app() {
           this.cars = data.cars || [];
         } else {
           this.cars = [...this.cars, ...(data.cars || [])];
+        }
+        if (this.expandedItem && !this.cars.some(car => car.item === this.expandedItem)) {
+          this.clearExpandedState();
         }
         this.totalCars = data.total;
         this.hasMore = data.hasMore;
@@ -358,8 +370,7 @@ function app() {
     // ── Copy Generation ──
     async toggleExpand(item) {
       if (this.expandedItem === item) {
-        this.expandedItem = null;
-        this.expandedAnalysis = null;
+        this.clearExpandedState();
         return;
       }
       this.expandedItem = item;
@@ -714,6 +725,7 @@ function app() {
 
       this.batchRunning = true;
       this.batchProgress = { done: 0, total: 0, current: '' };
+      this.clearExpandedState();
       const body = {};
       if (useSelected && this.selectedItems.size > 0) {
         body.items = [...this.selectedItems];
@@ -751,6 +763,7 @@ function app() {
       }
       this.batchRunning = false;
       if (useSelected) this.selectedItems = new Set();
+      await Promise.all([this.loadCars(true), this.loadCopySummary(), this.load8891ValidationBlockers()]);
     },
 
     async copyToClipboard(text) {
