@@ -1,0 +1,12 @@
+# Tasks - New Car Analysis MVP
+
+## ✅ Core Implementation
+- [x] 新增 `vehicle_analysis` migration 與 baseline analysis service
+- [x] 新車同步後自動標記並執行 baseline analysis
+- [x] 新增 `/api/analysis/pending`、`/api/analysis/:item`、`/api/analysis/:item/run-baseline`
+- [x] 儀表板新增待注意面板與跳轉展開互動
+
+## ✅ Follow-up
+- [x] 第二階段加入照片上傳與視覺分析
+- [x] 使用者可接受/忽略/自填待確認項目，接受結果會回寫車輛資料
+- [x] 使用者確認後將分析結果進一步回寫到文案與 8891/post-helper 流程

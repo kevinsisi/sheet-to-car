@@ -75,6 +75,33 @@
         </div>
       </div>
 
+      <div x-show="pendingAnalyses.length > 0" class="bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 p-4 mb-4">
+        <div class="flex items-center justify-between mb-3 gap-4 flex-wrap">
+          <div>
+            <div class="text-sm text-amber-700 dark:text-amber-300 font-medium">待注意車輛</div>
+            <div class="text-xs text-amber-600 dark:text-amber-400">新車已完成基礎分析，這些車仍有特徵需要人工確認或建議補照片。</div>
+          </div>
+          <div class="text-sm font-semibold text-amber-700 dark:text-amber-300" x-text="pendingAnalyses.length + ' 台待注意'"></div>
+        </div>
+        <div class="space-y-2">
+          <template x-for="entry in pendingAnalyses" :key="entry.item">
+            <button @click="jumpToAnalysis(entry.item)" class="w-full text-left bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 px-4 py-3 hover:border-amber-300 dark:hover:border-amber-700 transition">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <div class="font-medium text-sm"><span x-text="entry.car.item"></span> <span x-text="entry.car.brand + ' ' + entry.car.model"></span></div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1" x-text="entry.summaryText || '有待確認特徵'"></div>
+                  <div class="flex flex-wrap gap-2 mt-2">
+                    <span class="text-[11px] px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" x-text="(entry.reviewHints?.length || 0) + ' 個待確認'"></span>
+                    <span class="text-[11px] px-2 py-0.5 rounded bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300" x-text="(entry.recommendedPhotos?.length || 0) + ' 個建議照片'"></span>
+                  </div>
+                </div>
+                <div class="text-xs text-amber-700 dark:text-amber-300 whitespace-nowrap">點擊查看</div>
+              </div>
+            </button>
+          </template>
+        </div>
+      </div>
+
       <!-- Filters -->
       <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4 flex flex-wrap gap-3 items-center">
         <input type="text" x-model="filter.search" placeholder="搜尋品牌、型號、VIN..." class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm flex-1 min-w-48">
@@ -165,7 +192,7 @@
           </thead>
           <template x-for="car in filteredCars" :key="car.item">
             <tbody>
-              <tr :class="'status-' + car.status" class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" @click="toggleExpand(car.item)">
+              <tr :id="'car-row-' + car.item" :class="'status-' + car.status" class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" @click="toggleExpand(car.item)">
                 <td class="px-1 py-2 text-center" @click.stop>
                   <input type="checkbox" :checked="isSelected(car.item)" @change="toggleSelect(car.item)" class="w-3.5 h-3.5 accent-purple-600">
                 </td>
@@ -219,26 +246,147 @@
                 <td colspan="12" class="bg-gray-50 dark:bg-gray-800/50 border-b dark:border-gray-700 p-4">
                     <div class="flex gap-2 mb-4 items-center flex-wrap">
                       <span class="text-sm font-medium">文案生成</span>
-                      <button @click.stop="generateAll(car.item)" :disabled="generating"
+                      <button @click.stop="generateAll(car.item)" :disabled="isItemGenerating(car.item)"
                         class="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 disabled:opacity-50">
-                        <span x-show="!generating || generatingPlatform !== '全部'">全部生成</span>
-                        <span x-show="generating && generatingPlatform === '全部'">生成中...</span>
+                        <span x-show="!isGenerating(car.item, '全部')">全部生成</span>
+                        <span x-show="isGenerating(car.item, '全部')">生成中...</span>
                       </button>
-                      <button @click.stop="generateOne(car.item, '官網')" :disabled="generating"
+                      <button @click.stop="generateOne(car.item, '官網')" :disabled="isItemGenerating(car.item)"
                         class="bg-purple-600 text-white px-3 py-1 rounded text-xs hover:bg-purple-700 disabled:opacity-50">
-                        <span x-show="!generating || generatingPlatform !== '官網'">官網</span>
-                        <span x-show="generating && generatingPlatform === '官網'">...</span>
+                        <span x-show="!isGenerating(car.item, '官網')">官網</span>
+                        <span x-show="isGenerating(car.item, '官網')">...</span>
                       </button>
-                      <button @click.stop="generateOne(car.item, 'Facebook')" :disabled="generating"
+                      <button @click.stop="generateOne(car.item, 'Facebook')" :disabled="isItemGenerating(car.item)"
                         class="bg-sky-600 text-white px-3 py-1 rounded text-xs hover:bg-sky-700 disabled:opacity-50">
-                        <span x-show="!generating || generatingPlatform !== 'Facebook'">Facebook</span>
-                        <span x-show="generating && generatingPlatform === 'Facebook'">...</span>
+                        <span x-show="!isGenerating(car.item, 'Facebook')">Facebook</span>
+                        <span x-show="isGenerating(car.item, 'Facebook')">...</span>
                       </button>
-                      <button @click.stop="generateOne(car.item, 'post-helper')" :disabled="generating"
+                      <button @click.stop="generateOne(car.item, '8891')" :disabled="isItemGenerating(car.item)"
                         class="bg-emerald-600 text-white px-3 py-1 rounded text-xs hover:bg-emerald-700 disabled:opacity-50">
-                        <span x-show="!generating || generatingPlatform !== 'post-helper'">8891</span>
-                        <span x-show="generating && generatingPlatform === 'post-helper'">...</span>
+                        <span x-show="!isGenerating(car.item, '8891')">8891</span>
+                        <span x-show="isGenerating(car.item, '8891')">...</span>
                       </button>
+                    </div>
+                    <template x-for="platform in activeGenerationPlatforms(car.item)" :key="platform">
+                      <div class="mb-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 overflow-hidden">
+                        <div class="px-4 py-2 bg-blue-100 dark:bg-blue-900/40 border-b border-blue-200 dark:border-blue-800 text-sm font-medium text-blue-700 dark:text-blue-300">
+                          <span x-text="platform === '全部' ? '全部平台' : platform"></span>
+                          <span> 文案生成中</span>
+                        </div>
+                        <div class="p-4 text-sm text-blue-700 dark:text-blue-300 animate-pulse">
+                          系統正在生成文案，完成後會自動更新列表。
+                        </div>
+                      </div>
+                    </template>
+                    <div x-show="lastGenerationInfo && expandedItem === car.item" class="mb-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800 px-4 py-3 text-sm">
+                      <div class="font-medium text-emerald-800 dark:text-emerald-300">
+                        <span x-text="lastGenerationInfo.platform"></span>
+                        <span> 生成可靠度提示</span>
+                      </div>
+                      <div class="text-emerald-700 dark:text-emerald-400 text-xs mt-1">
+                        <span x-text="'已使用 ' + lastGenerationInfo.confirmedFeatureCount + ' 個已確認特徵' "></span>
+                        <span>，</span>
+                        <span x-text="'尚有 ' + lastGenerationInfo.pendingFieldCount + ' 個未確認欄位' "></span>
+                      </div>
+                    </div>
+                    <div x-show="expandedAnalysis && expandedItem === car.item" class="mb-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 overflow-hidden">
+                      <div class="px-4 py-2 bg-amber-100 dark:bg-amber-900/40 border-b border-amber-200 dark:border-amber-800 flex items-center justify-between gap-3">
+                        <div>
+                          <div class="text-sm font-medium text-amber-800 dark:text-amber-300">基礎特徵分析</div>
+                          <div class="text-xs text-amber-700 dark:text-amber-400" x-text="expandedAnalysis.summaryText"></div>
+                        </div>
+                        <button @click.stop="rerunBaseline(car.item)" class="text-xs px-3 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">重新分析</button>
+                      </div>
+                      <div class="p-4 grid md:grid-cols-3 gap-4 text-sm">
+                        <div>
+                          <div class="font-medium mb-2 text-gray-700 dark:text-gray-200">可先掌握的亮點</div>
+                          <ul class="space-y-1 text-gray-600 dark:text-gray-300">
+                            <template x-for="finding in expandedAnalysis.baselineFindings" :key="finding"><li class="leading-relaxed" x-text="'• ' + finding"></li></template>
+                          </ul>
+                        </div>
+                        <div>
+                          <div class="font-medium mb-2 text-gray-700 dark:text-gray-200">為什麼需要注意</div>
+                          <ul class="space-y-2 text-gray-600 dark:text-gray-300">
+                            <template x-for="hint in expandedAnalysis.reviewHints" :key="hint.field + hint.reason">
+                              <li class="rounded border dark:border-gray-700 px-3 py-2" :class="hint.severity === 'warning' ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-white dark:bg-gray-800'">
+                                <div class="text-xs font-semibold mb-1" x-text="hint.field"></div>
+                                <div class="text-xs leading-relaxed" x-text="hint.reason"></div>
+                                <div class="mt-2 flex flex-wrap gap-2 items-center">
+                                  <input type="text" :value="getReviewDraft('baseline', hint)" @input="reviewDrafts[reviewDraftKey('baseline', hint)] = $event.target.value"
+                                    placeholder="可補充確認值"
+                                    class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1 text-xs flex-1 min-w-40">
+                                  <button @click.stop="applyReview(car.item, 'baseline', hint, 'accept')" class="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700">接受</button>
+                                  <button @click.stop="applyReview(car.item, 'baseline', hint, 'ignore')" class="text-xs px-2 py-1 rounded bg-gray-500 text-white hover:bg-gray-600">忽略</button>
+                                </div>
+                              </li>
+                            </template>
+                          </ul>
+                        </div>
+                        <div>
+                          <div class="font-medium mb-2 text-gray-700 dark:text-gray-200">建議補哪些照片</div>
+                          <ul class="space-y-1 text-gray-600 dark:text-gray-300">
+                            <template x-for="photo in expandedAnalysis.recommendedPhotos" :key="photo"><li class="leading-relaxed" x-text="'• ' + photo"></li></template>
+                          </ul>
+                          <div class="font-medium mt-4 mb-2 text-gray-700 dark:text-gray-200">可加入介紹</div>
+                          <ul class="space-y-1 text-gray-600 dark:text-gray-300">
+                            <template x-for="line in expandedAnalysis.suggestedIntroLines" :key="line"><li class="leading-relaxed" x-text="'• ' + line"></li></template>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                    <div x-show="expandedItem === car.item" class="mb-4 bg-sky-50 dark:bg-sky-900/20 rounded-lg border border-sky-200 dark:border-sky-800 overflow-hidden">
+                      <div class="px-4 py-2 bg-sky-100 dark:bg-sky-900/40 border-b border-sky-200 dark:border-sky-800">
+                        <div class="text-sm font-medium text-sky-800 dark:text-sky-300">照片強化分析</div>
+                        <div class="text-xs text-sky-700 dark:text-sky-400">可補外觀、內裝或 badge 細節，讓系統判斷疑似改裝、特仕線索與可加入介紹的重點。</div>
+                      </div>
+                      <div class="p-4">
+                        <div class="flex flex-wrap items-center gap-3 mb-4">
+                          <input type="file" multiple accept="image/*" @change="setAnalysisPhotoFiles($event)"
+                            class="block w-full md:w-auto text-sm text-gray-600 dark:text-gray-300 file:mr-3 file:rounded file:border-0 file:bg-sky-600 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-sky-700">
+                          <button @click.stop="analyzePhotos(car.item)" :disabled="photoAnalysisRunning"
+                            class="bg-sky-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-sky-700 disabled:opacity-50">
+                            <span x-show="!photoAnalysisRunning">分析照片</span>
+                            <span x-show="photoAnalysisRunning">分析中...</span>
+                          </button>
+                          <span class="text-xs text-gray-500 dark:text-gray-400" x-show="analysisPhotoFiles.length > 0" x-text="'已選 ' + analysisPhotoFiles.length + ' 張照片'"></span>
+                        </div>
+
+                        <div x-show="expandedPhotoAnalysis" class="grid md:grid-cols-3 gap-4 text-sm">
+                          <div>
+                            <div class="font-medium mb-2 text-gray-700 dark:text-gray-200">照片可見重點</div>
+                            <ul class="space-y-1 text-gray-600 dark:text-gray-300">
+                              <template x-for="finding in expandedPhotoAnalysis?.findings || []" :key="finding"><li class="leading-relaxed" x-text="'• ' + finding"></li></template>
+                            </ul>
+                          </div>
+                          <div>
+                            <div class="font-medium mb-2 text-gray-700 dark:text-gray-200">照片仍需確認</div>
+                            <ul class="space-y-2 text-gray-600 dark:text-gray-300">
+                            <template x-for="hint in expandedPhotoAnalysis?.reviewHints || []" :key="hint.field + hint.reason">
+                              <li class="rounded border dark:border-gray-700 px-3 py-2" :class="hint.severity === 'warning' ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-white dark:bg-gray-800'">
+                                <div class="text-xs font-semibold mb-1" x-text="hint.field"></div>
+                                <div class="text-xs leading-relaxed" x-text="hint.reason"></div>
+                                <div class="mt-2 flex flex-wrap gap-2 items-center">
+                                  <input type="text" :value="getReviewDraft('photo', hint)" @input="reviewDrafts[reviewDraftKey('photo', hint)] = $event.target.value"
+                                    placeholder="可補充確認值"
+                                    class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1 text-xs flex-1 min-w-40">
+                                  <button @click.stop="applyReview(car.item, 'photo', hint, 'accept')" class="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700">接受</button>
+                                  <button @click.stop="applyReview(car.item, 'photo', hint, 'ignore')" class="text-xs px-2 py-1 rounded bg-gray-500 text-white hover:bg-gray-600">忽略</button>
+                                </div>
+                              </li>
+                            </template>
+                          </ul>
+                          </div>
+                          <div>
+                            <div class="font-medium mb-2 text-gray-700 dark:text-gray-200">可補進介紹</div>
+                            <ul class="space-y-1 text-gray-600 dark:text-gray-300">
+                              <template x-for="line in expandedPhotoAnalysis?.suggestedCopyLines || []" :key="line"><li class="leading-relaxed" x-text="'• ' + line"></li></template>
+                            </ul>
+                            <div class="mt-3 text-xs text-sky-700 dark:text-sky-300" x-text="expandedPhotoAnalysis?.summaryText || ''"></div>
+                          </div>
+                        </div>
+
+                        <div x-show="!expandedPhotoAnalysis" class="text-sm text-gray-500 dark:text-gray-400">尚未分析照片。建議至少補車頭、內裝、車尾 badge 或銘牌細節。</div>
+                      </div>
                     </div>
                     <!-- Copy list -->
                     <template x-for="copy in expandedCopies" :key="copy.id">
@@ -261,8 +409,7 @@
                         <pre class="p-4 text-sm whitespace-pre-wrap text-gray-800 dark:text-gray-200 max-h-64 overflow-y-auto" x-text="copy.content"></pre>
                       </div>
                     </template>
-                    <div x-show="expandedCopies.length === 0 && !generating" class="text-sm text-gray-500 dark:text-gray-400">尚未生成文案，點擊上方按鈕生成</div>
-                    <div x-show="generating" class="text-sm text-blue-600 dark:text-blue-400 animate-pulse">正在生成文案...</div>
+                    <div x-show="expandedCopies.length === 0 && !isItemGenerating(car.item)" class="text-sm text-gray-500 dark:text-gray-400">尚未生成文案，點擊上方按鈕生成</div>
                   </div>
                 </td>
               </tr>
@@ -422,7 +569,7 @@
             <h3 class="font-medium mb-1">平台文案規範</h3>
             <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">可直接編輯各平台的 Prompt，儲存後立即生效。重置會還原為內建預設。</p>
             <div class="flex gap-2 mb-3">
-              <template x-for="p in ['官網', 'Facebook', 'post-helper']" :key="p">
+              <template x-for="p in ['官網', 'Facebook', '8891']" :key="p">
                 <button @click="selectPlatformTab(p)"
                   :class="activePlatformTab === p ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'"
                   class="px-3 py-1 rounded text-xs font-medium" x-text="p"></button>

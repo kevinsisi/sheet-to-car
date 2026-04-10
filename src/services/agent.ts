@@ -5,10 +5,21 @@ import { toolDeclarations, executeTool } from './agentTools';
 import db from '../db/connection';
 import fs from 'fs';
 import path from 'path';
+import { selectSkillsForChat } from './skillLoader';
 
 const SYSTEM_PROMPT = fs.readFileSync(
   path.resolve(__dirname, '../prompts/system.txt'), 'utf-8'
 );
+
+function composeSystemPrompt(userMessage: string): string {
+  const skills = selectSkillsForChat(userMessage);
+  if (skills.length === 0) {
+    return SYSTEM_PROMPT;
+  }
+
+  const skillBlock = skills.map(skill => `## Active Skill: ${skill.name}\n${skill.content}`).join('\n\n');
+  return `${SYSTEM_PROMPT}\n\n${skillBlock}`;
+}
 
 interface ChatMessage {
   role: 'user' | 'model';
@@ -55,7 +66,7 @@ export async function processChat(
     const genai = new GoogleGenerativeAI(apiKey);
     const model = genai.getGenerativeModel({
       model: getGeminiModel(),
-      systemInstruction: SYSTEM_PROMPT,
+      systemInstruction: composeSystemPrompt(userMessage),
       tools: [{ functionDeclarations: toolDeclarations }],
     });
 

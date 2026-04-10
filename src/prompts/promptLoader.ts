@@ -15,6 +15,14 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
+function getPromptFilenames(platform: string): string[] {
+  if (platform === '8891') {
+    return ['8891.md', 'post-helper.md'];
+  }
+
+  return [`${platform}.md`];
+}
+
 function readWithCache(filePath: string): string | null {
   try {
     const stat = fs.statSync(filePath);
@@ -31,15 +39,19 @@ function readWithCache(filePath: string): string | null {
 
 /** Load prompt for a platform. Checks user override first, then built-in file. */
 export function loadPlatformPrompt(platform: string): string {
-  const filename = `${platform}.md`;
+  const filenames = getPromptFilenames(platform);
 
   // 1. User override in data/prompts/ (persistent across rebuilds)
-  const userContent = readWithCache(path.join(userPromptsDir, filename));
-  if (userContent !== null) return userContent;
+  for (const filename of filenames) {
+    const userContent = readWithCache(path.join(userPromptsDir, filename));
+    if (userContent !== null) return userContent;
+  }
 
   // 2. Built-in default from dist/prompts/platforms/
-  const builtinContent = readWithCache(path.join(builtinDir, filename));
-  if (builtinContent !== null) return builtinContent;
+  for (const filename of filenames) {
+    const builtinContent = readWithCache(path.join(builtinDir, filename));
+    if (builtinContent !== null) return builtinContent;
+  }
 
   return '';
 }
@@ -50,20 +62,37 @@ export function savePlatformPrompt(platform: string, content: string): void {
   const userPath = path.join(userPromptsDir, `${platform}.md`);
   fs.writeFileSync(userPath, content, 'utf-8');
   cache.delete(userPath);
+
+  if (platform === '8891') {
+    const legacyUserPath = path.join(userPromptsDir, 'post-helper.md');
+    try {
+      fs.unlinkSync(legacyUserPath);
+      cache.delete(legacyUserPath);
+    } catch {
+      // Legacy override does not exist.
+    }
+  }
 }
 
 /** Reset a platform prompt to built-in default by removing the user override. */
 export function resetPlatformPrompt(platform: string): void {
-  const userPath = path.join(userPromptsDir, `${platform}.md`);
-  try {
-    fs.unlinkSync(userPath);
-    cache.delete(userPath);
-  } catch {
-    // File doesn't exist — already at default
+  for (const filename of getPromptFilenames(platform)) {
+    const userPath = path.join(userPromptsDir, filename);
+    try {
+      fs.unlinkSync(userPath);
+      cache.delete(userPath);
+    } catch {
+      // File doesn't exist — already at default.
+    }
   }
 }
 
 /** Get the built-in (default) prompt for a platform, ignoring user overrides. */
 export function getBuiltinPrompt(platform: string): string {
-  return readWithCache(path.join(builtinDir, `${platform}.md`)) || '';
+  for (const filename of getPromptFilenames(platform)) {
+    const builtinContent = readWithCache(path.join(builtinDir, filename));
+    if (builtinContent !== null) return builtinContent;
+  }
+
+  return '';
 }

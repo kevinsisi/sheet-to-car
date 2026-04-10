@@ -8,6 +8,7 @@ import chatRouter from './routes/chat';
 import settingsRouter from './routes/settings';
 import copiesRouter from './routes/copies';
 import promptsRouter from './routes/prompts';
+import analysisRouter from './routes/analysis';
 import { cleanExpiredCopies } from './services/copyGenerator';
 
 dotenv.config();
@@ -16,7 +17,7 @@ const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Run DB migrations
@@ -28,6 +29,7 @@ app.use('/api/chat', chatRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/copies', copiesRouter);
 app.use('/api/prompts', promptsRouter);
+app.use('/api/analysis', analysisRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

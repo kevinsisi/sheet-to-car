@@ -1,4 +1,6 @@
 function app() {
+  const REQUIRED_COPY_PLATFORMS = 3;
+
   return {
     view: 'dashboard',
     loading: false,
@@ -16,6 +18,7 @@ function app() {
     maxSelect: 20,
     copyToast: '',
     selectedItems: new Set(),
+    pendingAnalyses: [],
 
     // Pagination
     page: 1,
@@ -28,7 +31,14 @@ function app() {
     // Expanded car row
     expandedItem: null,
     expandedCopies: [],
+    expandedAnalysis: null,
+    expandedPhotoAnalysis: null,
+    lastGenerationInfo: null,
+    analysisPhotoFiles: [],
+    photoAnalysisRunning: false,
+    reviewDrafts: {},
     generating: false,
+    generatingItem: '',
     generatingPlatform: '',
 
     // Chat
@@ -58,7 +68,7 @@ function app() {
 
     async init() {
       this.applyDark();
-      await Promise.all([this.loadCars(true), this.loadStats(), this.checkBatchStatus(), this.loadCopySummary()]);
+      await Promise.all([this.loadCars(true), this.loadStats(), this.checkBatchStatus(), this.loadCopySummary(), this.loadPendingAnalyses()]);
 
       // Watch filters — reload on change
       this.$watch('filter.status', () => this.loadCars(true));
@@ -90,10 +100,18 @@ function app() {
       } catch {}
     },
 
+    async loadPendingAnalyses() {
+      try {
+        const resp = await fetch('/api/analysis/pending');
+        const data = await resp.json();
+        this.pendingAnalyses = data.items || [];
+      } catch {}
+    },
+
     getCopyStatus(item) {
       const s = this.copySummary[item];
       if (!s) return '未生成';
-      return s.platforms >= 4 ? '完整' : '部分';
+      return s.platforms >= REQUIRED_COPY_PLATFORMS ? '完整' : '部分';
     },
 
     async checkBatchStatus() {
@@ -185,7 +203,7 @@ function app() {
         if (this.filter.poStatus) params.set('poStatus', this.filter.poStatus);
         if (this.filter.copyStatus) {
           // Map UI values to API values
-          const map = { '未生成': 'no_copy', '部分': 'has_copy', '完整': 'has_copy' };
+          const map = { '未生成': 'no_copy', '部分': 'partial_copy', '完整': 'complete_copy' };
           const val = map[this.filter.copyStatus];
           if (val) params.set('copyStatus', val);
         }
@@ -226,7 +244,7 @@ function app() {
       this.syncing = true;
       try {
         await fetch('/api/sync', { method: 'POST' });
-        await Promise.all([this.loadCars(true), this.loadStats()]);
+        await Promise.all([this.loadCars(true), this.loadStats(), this.loadPendingAnalyses()]);
       } catch (err) {
         alert('同步失敗: ' + err.message);
       }
@@ -278,10 +296,12 @@ function app() {
     async toggleExpand(item) {
       if (this.expandedItem === item) {
         this.expandedItem = null;
+        this.expandedAnalysis = null;
         return;
       }
       this.expandedItem = item;
-      await this.loadCopies(item);
+      this.lastGenerationInfo = null;
+      await Promise.all([this.loadCopies(item), this.loadAnalysis(item)]);
     },
 
     async loadCopies(item) {
@@ -289,41 +309,246 @@ function app() {
         const resp = await fetch(`/api/copies/${item}`);
         const data = await resp.json();
         this.expandedCopies = data.copies || [];
+        const latestCopy = this.expandedCopies[0];
+        this.lastGenerationInfo = latestCopy ? {
+          platform: latestCopy.platform,
+          confirmedFeatureCount: latestCopy.confirmed_feature_count || 0,
+          pendingFieldCount: latestCopy.pending_field_count || 0,
+        } : null;
       } catch {}
     },
 
-    async generateAll(item) {
-      this.generating = true;
-      this.generatingPlatform = '全部';
+    async loadAnalysis(item) {
       try {
-        await fetch(`/api/copies/${item}/generate`, {
+        const resp = await fetch(`/api/analysis/${item}`);
+        if (!resp.ok) {
+          this.expandedAnalysis = null;
+          this.expandedPhotoAnalysis = null;
+          return;
+        }
+        const data = await resp.json();
+        this.expandedAnalysis = data;
+        this.expandedPhotoAnalysis = data.photoAnalysis || null;
+      } catch {
+        this.expandedAnalysis = null;
+        this.expandedPhotoAnalysis = null;
+      }
+    },
+
+    setAnalysisPhotoFiles(event) {
+      this.analysisPhotoFiles = Array.from(event.target.files || []).slice(0, 8);
+    },
+
+    async readFileAsDataUrl(file) {
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error(`無法讀取檔案 ${file.name}`));
+        reader.readAsDataURL(file);
+      });
+    },
+
+    async analyzePhotos(item) {
+      if (this.analysisPhotoFiles.length === 0) {
+        this.copyToast = '請先選擇照片';
+        setTimeout(() => { if (this.copyToast === '請先選擇照片') this.copyToast = ''; }, 2000);
+        return;
+      }
+
+      this.photoAnalysisRunning = true;
+      this.copyToast = `開始分析 ${item} 照片...`;
+
+      try {
+        const photos = await Promise.all(this.analysisPhotoFiles.map(async file => ({
+          name: file.name,
+          mimeType: file.type || 'image/jpeg',
+          dataUrl: await this.readFileAsDataUrl(file),
+        })));
+
+        const resp = await fetch(`/api/analysis/${item}/photos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ photos }),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          this.copyToast = err.error || '照片分析失敗';
+          return;
+        }
+
+        const data = await resp.json();
+        this.expandedPhotoAnalysis = data.photoAnalysis || null;
+        await this.loadPendingAnalyses();
+        this.analysisPhotoFiles = [];
+        this.copyToast = `${item} 照片分析完成`;
+      } catch (err) {
+        this.copyToast = '照片分析失敗: ' + err.message;
+      } finally {
+        this.photoAnalysisRunning = false;
+        setTimeout(() => { if (this.copyToast.includes(item) || this.copyToast.includes('照片分析')) this.copyToast = ''; }, 2500);
+      }
+    },
+
+    async rerunBaseline(item) {
+      this.copyToast = `重新分析 ${item} 中...`;
+      try {
+        const resp = await fetch(`/api/analysis/${item}/run-baseline`, { method: 'POST' });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          this.copyToast = err.error || '重新分析失敗';
+          return;
+        }
+        this.expandedAnalysis = await resp.json();
+        await this.loadPendingAnalyses();
+        this.copyToast = `${item} 已重新完成基礎分析`;
+      } catch (err) {
+        this.copyToast = '重新分析失敗: ' + err.message;
+      }
+      setTimeout(() => {
+        if (this.copyToast.includes(item)) this.copyToast = '';
+      }, 2500);
+    },
+
+    async jumpToAnalysis(item) {
+      this.filter.status = '';
+      this.filter.poStatus = '';
+      this.filter.copyStatus = '';
+      this.filter.search = item;
+      await this.loadCars(true);
+      await this.toggleExpand(item);
+      this.$nextTick(() => {
+        document.getElementById(`car-row-${item}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    },
+
+    reviewDraftKey(source, hint) {
+      return `${source}|${hint.field}|${hint.reason}`;
+    },
+
+    getReviewDraft(source, hint) {
+      const key = this.reviewDraftKey(source, hint);
+      if (!(key in this.reviewDrafts)) {
+        this.reviewDrafts[key] = hint.suggestedValue || '';
+      }
+      return this.reviewDrafts[key];
+    },
+
+    async applyReview(item, source, hint, decision) {
+      const key = this.reviewDraftKey(source, hint);
+      const value = decision === 'accept' ? (this.reviewDrafts[key] || hint.suggestedValue || '') : '';
+
+      try {
+        const resp = await fetch(`/api/analysis/${item}/review`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source,
+            field: hint.field,
+            reason: hint.reason,
+            decision,
+            value,
+          }),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          this.copyToast = err.error || '處理確認失敗';
+          return;
+        }
+
+        const data = await resp.json();
+        this.expandedAnalysis = data.analysis;
+        this.expandedPhotoAnalysis = data.photoAnalysis;
+        delete this.reviewDrafts[key];
+        await Promise.all([this.loadPendingAnalyses(), this.loadCars(true)]);
+        this.copyToast = decision === 'accept' ? '已接受並更新資料' : '已忽略此提示';
+      } catch (err) {
+        this.copyToast = '處理確認失敗: ' + err.message;
+      }
+
+      setTimeout(() => {
+        if (this.copyToast === '已接受並更新資料' || this.copyToast === '已忽略此提示') this.copyToast = '';
+      }, 2000);
+    },
+
+    isGenerating(item, platform) {
+      return this.generating && this.generatingItem === item && this.generatingPlatform === platform;
+    },
+
+    isItemGenerating(item) {
+      return this.generating && this.generatingItem === item;
+    },
+
+    activeGenerationPlatforms(item) {
+      if (!this.isItemGenerating(item)) return [];
+      return [this.generatingPlatform];
+    },
+
+    startGeneration(item, platform) {
+      this.generating = true;
+      this.generatingItem = item;
+      this.generatingPlatform = platform;
+      this.copyToast = `開始生成 ${item} ${platform} 文案`;
+    },
+
+    finishGeneration(item, platform, message) {
+      if (this.generatingItem === item && this.generatingPlatform === platform) {
+        this.generating = false;
+        this.generatingItem = '';
+        this.generatingPlatform = '';
+      }
+      this.copyToast = message;
+      setTimeout(() => {
+        if (this.copyToast === message) this.copyToast = '';
+      }, 2500);
+    },
+
+    async generateAll(item) {
+      this.startGeneration(item, '全部');
+      try {
+        const resp = await fetch(`/api/copies/${item}/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({}),
         });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          this.finishGeneration(item, '全部', err.error || '全部文案生成失敗');
+          return;
+        }
+        this.lastGenerationInfo = null;
         await Promise.all([this.loadCopies(item), this.loadCopySummary()]);
+        this.finishGeneration(item, '全部', `${item} 全部文案已生成`);
       } catch (err) {
-        alert('生成失敗: ' + err.message);
+        this.finishGeneration(item, '全部', '生成失敗: ' + err.message);
       }
-      this.generating = false;
-      this.generatingPlatform = '';
     },
 
     async generateOne(item, platform) {
-      this.generating = true;
-      this.generatingPlatform = platform;
+      this.startGeneration(item, platform);
       try {
-        await fetch(`/api/copies/${item}/generate`, {
+        const resp = await fetch(`/api/copies/${item}/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ platform }),
         });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          this.finishGeneration(item, platform, err.error || `${platform} 文案生成失敗`);
+          return;
+        }
+        const data = await resp.json();
+        this.lastGenerationInfo = {
+          platform,
+          confirmedFeatureCount: data.generationContext?.confirmedFeatureCount || 0,
+          pendingFieldCount: data.generationContext?.pendingFieldCount || 0,
+        };
         await Promise.all([this.loadCopies(item), this.loadCopySummary()]);
+        this.finishGeneration(item, platform, `${item} ${platform} 文案已生成`);
       } catch (err) {
-        alert('生成失敗: ' + err.message);
+        this.finishGeneration(item, platform, '生成失敗: ' + err.message);
       }
-      this.generating = false;
-      this.generatingPlatform = '';
     },
 
     async publishCopy(id) {

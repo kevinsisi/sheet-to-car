@@ -2,8 +2,10 @@ import { readCarsFromSheet } from '../lib/sheets/reader';
 import { updatePoStatus } from '../lib/sheets/writer';
 import { CarRecord } from '../lib/sheets/types';
 import db from '../db/connection';
+import { markAnalysisPending, processPendingVehicleAnalyses } from './vehicleAnalysis';
 
 const SYNC_TTL = 12 * 60 * 60 * 1000; // 12 hours
+const REQUIRED_COPY_PLATFORM_COUNT = 3;
 
 function getSpreadsheetId(): string {
   const fromDb = db.prepare("SELECT value FROM settings WHERE key = 'spreadsheet_id'").get() as any;
@@ -29,7 +31,11 @@ export async function syncCarsToDb(forceRefresh = false): Promise<number> {
   const spreadsheetId = getSpreadsheetId();
   if (!spreadsheetId) throw new Error('SPREADSHEET_ID not configured');
 
+  const existingRows = db.prepare('SELECT item FROM cars').all() as { item: string }[];
+  const existingItems = new Set(existingRows.map(row => row.item));
+  const isInitialBootstrap = existingRows.length === 0;
   const cars = await readCarsFromSheet(spreadsheetId);
+  const newCars = cars.filter(car => !existingItems.has(car.item));
 
   const upsert = db.prepare(`
     INSERT OR REPLACE INTO cars (item, source, brand, year, manufacture_date, mileage, model, vin, condition, status, exterior_color, interior_color, modification, note, po_status, owner, price, bg_color, row_order, po_official, po_8891, po_facebook, po_post_helper, updated_at)
@@ -58,6 +64,16 @@ export async function syncCarsToDb(forceRefresh = false): Promise<number> {
     }
   });
   runSync(cars);
+
+  if (!isInitialBootstrap) {
+    for (const car of newCars) {
+      markAnalysisPending(car.item);
+    }
+
+    if (newCars.length > 0) {
+      await processPendingVehicleAnalyses(newCars);
+    }
+  }
 
   // Update sync timestamp in car_cache
   db.prepare('DELETE FROM car_cache').run();
@@ -120,6 +136,18 @@ export function getCarsPaginated(params: PaginationParams): PaginatedResult {
     conditions.push('(SELECT COUNT(*) FROM car_copies cc WHERE cc.item = c.item) > 0');
   } else if (copyStatus === 'no_copy') {
     conditions.push('(SELECT COUNT(*) FROM car_copies cc WHERE cc.item = c.item) = 0');
+  } else if (copyStatus === 'partial_copy') {
+    conditions.push(`(
+      SELECT COUNT(DISTINCT CASE WHEN cc.platform = 'post-helper' THEN '8891' ELSE cc.platform END)
+      FROM car_copies cc
+      WHERE cc.item = c.item
+    ) BETWEEN 1 AND ${REQUIRED_COPY_PLATFORM_COUNT - 1}`);
+  } else if (copyStatus === 'complete_copy') {
+    conditions.push(`(
+      SELECT COUNT(DISTINCT CASE WHEN cc.platform = 'post-helper' THEN '8891' ELSE cc.platform END)
+      FROM car_copies cc
+      WHERE cc.item = c.item
+    ) >= ${REQUIRED_COPY_PLATFORM_COUNT}`);
   }
 
   const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';

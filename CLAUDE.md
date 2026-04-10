@@ -27,9 +27,16 @@ Car garage management web app: syncs Google Sheets inventory → SQLite, serves 
 ### Gemini AI Copy Generation (`src/services/copyGenerator.ts`)
 
 - Prompt = car data + team member contact (resolved from `owner` field) + platform Markdown template + user preferences
-- Platforms: **官網**, **8891**, **Facebook**, **post-helper**
+- Platforms: **官網**, **8891**, **Facebook**
 - Copy lifecycle: `draft` → publish → `上架` (7-day expiry set) → hourly cleanup removes expired rows
 - Platform templates: `src/prompts/platforms/*.md` (default); user overrides in `data/prompts/` (volume-mounted, highest priority)
+
+### Vehicle Analysis (`src/services/vehicleAnalysis.ts`)
+
+- New cars trigger a Gemini baseline analysis after sync
+- Results persist in `vehicle_analysis` and surface dashboard reminders for cars needing attention
+- Baseline analysis returns findings, review hints, recommended photos, and conservative intro lines for later copy use
+- Expanded rows can upload photos for a second Gemini pass; latest photo analysis is stored in `vehicle_photo_analysis`
 
 ### API Key Pool (`src/services/geminiKeys.ts`)
 
@@ -69,6 +76,8 @@ SQLite at `data/sheet-to-car.db`, WAL mode, `PRAGMA foreign_keys = ON`.
 | `api_key_cooldowns` | Rate-limit cooldown state |
 | `user_preferences` | AI agent memory (tone, style, custom_rules) |
 | `team_members` | Sales team contact info (seeded) |
+| `vehicle_analysis` | Baseline analysis findings, review hints, and photo recommendations for new cars |
+| `vehicle_photo_analysis` | Latest uploaded-photo analysis for visible modifications, cues, and copy suggestions |
 
 Migrations run at startup from `src/db/migrations/*.sql` (state tracked in DB). Migrations are **append-only** — never drop or rename columns.
 
@@ -108,6 +117,15 @@ GET    /api/copies/summary/all        copy counts per car
 GET    /api/copies/preferences/all
 PUT    /api/copies/preferences
 GET    /api/copies/team/members
+```
+
+### Vehicle Analysis
+
+```
+GET    /api/analysis/pending
+GET    /api/analysis/:item
+POST   /api/analysis/:item/run-baseline
+POST   /api/analysis/:item/photos
 ```
 
 ### Settings

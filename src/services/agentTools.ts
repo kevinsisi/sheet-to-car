@@ -1,6 +1,6 @@
 import { SchemaType, FunctionDeclaration } from '@google/generative-ai';
 import { getCars, getStats, setPoStatus } from './carInventory';
-import { generateCopy, generateAllCopies, setUserPreference, PLATFORMS } from './copyGenerator';
+import { generateAllCopies, generateCopyWithMeta, setUserPreference, PLATFORMS } from './copyGenerator';
 import { CarRecord } from '../lib/sheets/types';
 import { loadPlatformPrompt, savePlatformPrompt, resetPlatformPrompt } from '../prompts/promptLoader';
 
@@ -45,7 +45,7 @@ export const toolDeclarations: FunctionDeclaration[] = [
       type: SchemaType.OBJECT,
       properties: {
         item: { type: SchemaType.STRING, description: '車輛編號' },
-        platform: { type: SchemaType.STRING, description: '平台：官網、Facebook、post-helper。不填則全部生成' },
+        platform: { type: SchemaType.STRING, description: '平台：官網、Facebook、8891。不填則全部生成' },
       },
       required: ['item'],
     },
@@ -64,11 +64,11 @@ export const toolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'update_platform_prompt',
-    description: '查看或修改平台文案規範（Prompt）。可查看目前內容、套用使用者要求的修改、或重置為預設值。支援平台：官網、Facebook、post-helper',
+    description: '查看或修改平台文案規範（Prompt）。可查看目前內容、套用使用者要求的修改、或重置為預設值。支援平台：官網、Facebook、8891',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        platform: { type: SchemaType.STRING, description: '平台名稱：官網、Facebook、post-helper' },
+        platform: { type: SchemaType.STRING, description: '平台名稱：官網、Facebook、8891' },
         action: { type: SchemaType.STRING, description: '動作：view（查看）、update（更新，需提供 content）、reset（重置為預設）' },
         content: { type: SchemaType.STRING, description: 'action 為 update 時，完整的新 prompt 內容' },
       },
@@ -155,8 +155,13 @@ export async function executeTool(name: string, args: any): Promise<string> {
       if (!car) return `找不到車輛 ${args.item}`;
 
       if (args.platform) {
-        const content = await generateCopy(car, args.platform);
-        return `已生成 ${args.platform} 文案：\n\n${content}`;
+        const generated = await generateCopyWithMeta(car, args.platform);
+        let reply = `已生成 ${args.platform} 文案：\n\n${generated.content}`;
+        if (generated.reviewHints.length > 0) {
+          reply += '\n\n【建議人工確認】\n';
+          reply += generated.reviewHints.map(hint => `- ${hint.field}: ${hint.reason}`).join('\n');
+        }
+        return reply;
       } else {
         const results = await generateAllCopies(car);
         let reply = '已生成全部平台文案：\n';

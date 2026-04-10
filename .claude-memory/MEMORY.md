@@ -10,6 +10,10 @@
 | 7-day copy expiry | Published copies auto-expire; hourly cron cleanup (not lazy delete) |
 | User prompts in data/ | `data/prompts/` overrides `dist/prompts/`; mounted as Docker volume for persistence |
 | SSE for streaming | Both chat and batch copy generation use SSE (not WebSocket) |
+| Single-car generation lock | UI and API both block duplicate copy generation for the same car while one request is in flight |
+| 8891 skill guardrails | 8891 generation auto-loads local skill rules and returns review hints for inferred fields |
+| Vehicle analysis MVP | New cars auto-run baseline analysis after bootstrap, dashboard shows pending-attention cars, expanded rows support photo-based Gemini analysis, review hints can be accepted/ignored with accepted values merged back into car data, and copy generation explicitly consumes confirmed findings while treating unresolved fields as non-facts |
+| Copy reliability metadata | Each saved draft copy persists confirmed-feature count and pending-field count so reliability hints survive reloads |
 | No ORM | Raw better-sqlite3 SQL; migrations are append-only |
 | CommonJS only | `tsconfig.json` module: commonjs; no ESM imports |
 
@@ -26,6 +30,7 @@
 | Platform prompts | `src/prompts/platforms/*.md` + `data/prompts/` (runtime overrides) |
 | Route handlers | `src/routes/` (api, chat, copies, settings, prompts) |
 | Frontend SPA | `src/public/index.html`, `src/public/js/app.js` |
+| Skill loading | `src/services/skillLoader.ts`, `skills/**/SKILL.md` |
 
 ## Hard Constraints
 
@@ -41,8 +46,7 @@
 |---|---|
 | 官網 | `src/prompts/platforms/官網.md` |
 | Facebook | `src/prompts/platforms/Facebook.md` |
-| post-helper | `src/prompts/platforms/post-helper.md` |
-| 8891 | Handled inline (no separate template file) |
+| 8891 | `src/prompts/platforms/8891.md` |
 
 ## Deployment Notes
 

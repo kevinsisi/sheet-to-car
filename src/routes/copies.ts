@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getCars } from '../services/carInventory';
 import {
-  generateCopy, generateAllCopies, getCopies,
+  generateAllCopies, getCopies, generateCopyWithMeta,
   publishCopy, unpublishCopy, deleteCopy, cleanExpiredCopies,
   setUserPreference, getAllPreferences, getTeamMembers, PLATFORMS,
   getPlatformPrompts,
@@ -10,6 +10,17 @@ import { getKeyCount } from '../services/geminiKeys';
 import db from '../db/connection';
 
 const router = Router();
+
+const activeGenerationLocks = new Set<string>();
+
+function getGenerationLockKey(item: string, platform: string): string {
+  return `${item}::${platform}`;
+}
+
+function hasActiveGeneration(item: string): boolean {
+  return PLATFORMS.some(platform => activeGenerationLocks.has(getGenerationLockKey(item, platform)))
+    || activeGenerationLocks.has(getGenerationLockKey(item, '全部'));
+}
 
 // ── Batch task state (in-memory, survives page refresh) ──
 let batchTask: {
@@ -133,10 +144,10 @@ router.put('/prompt', (req: Request, res: Response) => {
 router.get('/summary/all', (_req: Request, res: Response) => {
   try {
     const rows = db.prepare(
-      `SELECT item, COUNT(*) as count,
-       COUNT(DISTINCT platform) as platforms
-       FROM car_copies GROUP BY item`
-    ).all() as any[];
+       `SELECT item, COUNT(*) as count,
+        COUNT(DISTINCT CASE WHEN platform = 'post-helper' THEN '8891' ELSE platform END) as platforms
+        FROM car_copies GROUP BY item`
+     ).all() as any[];
     const summary: Record<string, { count: number; platforms: number }> = {};
     for (const row of rows) {
       summary[row.item] = { count: row.count, platforms: row.platforms };
@@ -169,14 +180,37 @@ router.post('/:item/generate', async (req: Request, res: Response) => {
     const car = cars.find(c => c.item === req.params.item);
     if (!car) return res.status(404).json({ error: `Car ${req.params.item} not found` });
 
+    if (hasActiveGeneration(req.params.item)) {
+      return res.status(409).json({ error: `Car ${req.params.item} copy generation is already in progress` });
+    }
+
     if (platform && PLATFORMS.includes(platform)) {
-      const content = await generateCopy(car, platform);
-      const copies = getCopies(req.params.item);
-      return res.json({ content, copies, platform });
+      const lockKey = getGenerationLockKey(req.params.item, platform);
+      activeGenerationLocks.add(lockKey);
+      try {
+        const generated = await generateCopyWithMeta(car, platform);
+        const copies = getCopies(req.params.item);
+        return res.json({
+          content: generated.content,
+          copies,
+          platform,
+          reviewHints: generated.reviewHints,
+          activeSkills: generated.activeSkills,
+          generationContext: generated.generationContext,
+        });
+      } finally {
+        activeGenerationLocks.delete(lockKey);
+      }
     } else {
-      const results = await generateAllCopies(car);
-      const copies = getCopies(req.params.item);
-      return res.json({ results, copies });
+      const lockKey = getGenerationLockKey(req.params.item, '全部');
+      activeGenerationLocks.add(lockKey);
+      try {
+        const results = await generateAllCopies(car);
+        const copies = getCopies(req.params.item);
+        return res.json({ results, copies });
+      } finally {
+        activeGenerationLocks.delete(lockKey);
+      }
     }
   } catch (err: any) {
     console.error('[copies] Generate error:', err.message);
