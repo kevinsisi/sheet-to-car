@@ -34,6 +34,11 @@ export interface GeneratedCopyResult {
     confirmedFeatureCount: number;
     pendingFieldCount: number;
   };
+  validationSummary?: {
+    status: 'ready' | 'warning' | 'error';
+    errorCount: number;
+    warningCount: number;
+  };
 }
 
 interface ValidationMessage {
@@ -204,17 +209,25 @@ function validate8891CarData(data: any): ValidationMessage[] {
   return messages;
 }
 
-function finalize8891Content(content: string): { content: string; validationHints: CopyReviewHint[] } {
+function finalize8891Content(content: string): {
+  content: string;
+  validationHints: CopyReviewHint[];
+  validationSummary: { status: 'ready' | 'warning' | 'error'; errorCount: number; warningCount: number };
+} {
   const parsed = parseGeneratedJson(content);
   if (!parsed) {
     return {
       content,
       validationHints: [{ field: 'json', reason: '8891 內容不是合法 JSON，post-helper 無法使用。', severity: 'warning', suggestedValue: null }],
+      validationSummary: { status: 'error', errorCount: 1, warningCount: 0 },
     };
   }
 
   const normalized = normalize8891Json(parsed);
-  const validationHints = validate8891CarData(normalized).map(message => ({
+  const validationMessages = validate8891CarData(normalized);
+  const errorCount = validationMessages.filter(message => message.type === 'error').length;
+  const warningCount = validationMessages.filter(message => message.type === 'warning').length;
+  const validationHints = validationMessages.map(message => ({
     field: message.field,
     reason: message.message,
     severity: (message.type === 'error' ? 'warning' : 'info') as 'warning' | 'info',
@@ -224,6 +237,11 @@ function finalize8891Content(content: string): { content: string; validationHint
   return {
     content: JSON.stringify(normalized, null, 2),
     validationHints,
+    validationSummary: {
+      status: errorCount > 0 ? 'error' : warningCount > 0 ? 'warning' : 'ready',
+      errorCount,
+      warningCount,
+    },
   };
 }
 
@@ -539,7 +557,13 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
     return text;
   });
 
-  const finalized = platform === '8891' ? finalize8891Content(rawResult) : { content: rawResult, validationHints: [] as CopyReviewHint[] };
+  const finalized = platform === '8891'
+    ? finalize8891Content(rawResult)
+    : {
+        content: rawResult,
+        validationHints: [] as CopyReviewHint[],
+        validationSummary: { status: 'ready' as const, errorCount: 0, warningCount: 0 },
+      };
 
   // Remove existing draft to prevent duplicates
   db.prepare(`
@@ -554,9 +578,21 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
 
   // Save to DB
   db.prepare(`
-    INSERT INTO car_copies (item, platform, content, status, confirmed_feature_count, pending_field_count)
-    VALUES (?, ?, ?, 'draft', ?, ?)
-  `).run(car.item, platform, finalized.content, generationContext.confirmedFeatureCount, generationContext.pendingFieldCount);
+    INSERT INTO car_copies (
+      item, platform, content, status, confirmed_feature_count, pending_field_count,
+      validation_status, validation_error_count, validation_warning_count
+    )
+    VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?)
+  `).run(
+    car.item,
+    platform,
+    finalized.content,
+    generationContext.confirmedFeatureCount,
+    generationContext.pendingFieldCount,
+    finalized.validationSummary.status,
+    finalized.validationSummary.errorCount,
+    finalized.validationSummary.warningCount,
+  );
 
   return {
     content: finalized.content,
@@ -565,6 +601,7 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
       : [],
     activeSkills: skills.map(skill => skill.name),
     generationContext,
+    validationSummary: finalized.validationSummary,
   };
 }
 
@@ -592,9 +629,10 @@ export function getCopies(item: string): Array<{
   id: number; platform: string; content: string; status: string;
   created_at: string; expires_at: string | null;
   confirmed_feature_count: number; pending_field_count: number;
+  validation_status: string; validation_error_count: number; validation_warning_count: number;
 }> {
   return db.prepare(
-    'SELECT id, platform, content, status, created_at, expires_at, confirmed_feature_count, pending_field_count FROM car_copies WHERE item = ? ORDER BY created_at DESC'
+    'SELECT id, platform, content, status, created_at, expires_at, confirmed_feature_count, pending_field_count, validation_status, validation_error_count, validation_warning_count FROM car_copies WHERE item = ? ORDER BY created_at DESC'
   ).all(item) as any[];
 }
 

@@ -420,6 +420,12 @@
                           <span>，</span>
                           <span x-text="'尚有 ' + (copy.pending_field_count || 0) + ' 個未確認欄位'"></span>
                         </div>
+                        <div x-show="copy.platform === '8891'" class="px-4 py-2 text-xs border-b dark:border-gray-700"
+                          :class="copy.validation_status === 'error' ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300' : (copy.validation_status === 'warning' ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300' : 'bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-300')">
+                          <span x-show="copy.validation_status === 'ready'">post-helper 驗證：可直接使用</span>
+                          <span x-show="copy.validation_status === 'warning'" x-text="'post-helper 驗證：有 ' + (copy.validation_warning_count || 0) + ' 個警告'"></span>
+                          <span x-show="copy.validation_status === 'error'" x-text="'post-helper 驗證：有 ' + (copy.validation_error_count || 0) + ' 個阻塞問題' "></span>
+                        </div>
                         <pre class="p-4 text-sm whitespace-pre-wrap text-gray-800 dark:text-gray-200 max-h-64 overflow-y-auto" x-text="copy.content"></pre>
                       </div>
                     </template>
