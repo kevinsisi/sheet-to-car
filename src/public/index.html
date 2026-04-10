@@ -331,6 +331,15 @@
                           <ul class="space-y-1 text-gray-600 dark:text-gray-300">
                             <template x-for="line in expandedAnalysis.suggestedIntroLines" :key="line"><li class="leading-relaxed" x-text="'• ' + line"></li></template>
                           </ul>
+                          <div class="font-medium mt-4 mb-2 text-gray-700 dark:text-gray-200">VIN Decode</div>
+                          <div x-show="expandedAnalysis.vinDecode" class="text-xs text-gray-600 dark:text-gray-300 space-y-1">
+                            <div x-text="'排氣量: ' + (expandedAnalysis.vinDecode?.engineDisplacementL || '未提供') + 'L'"></div>
+                            <div x-text="'燃料: ' + (expandedAnalysis.vinDecode?.fuelType || '未提供')"></div>
+                            <div x-text="'驅動: ' + (expandedAnalysis.vinDecode?.driveType || '未提供')"></div>
+                            <div x-text="'車身: ' + (expandedAnalysis.vinDecode?.bodyClass || '未提供')"></div>
+                            <div x-text="'變速箱: ' + (expandedAnalysis.vinDecode?.transmissionStyle || '未提供')"></div>
+                          </div>
+                          <div x-show="!expandedAnalysis.vinDecode" class="text-xs text-amber-700 dark:text-amber-300">目前沒有 VIN decode 可用，系統會改用既有資料與人工確認流程。</div>
                         </div>
                       </div>
                     </div>

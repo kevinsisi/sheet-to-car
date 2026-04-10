@@ -6,6 +6,7 @@ import { getGeminiModel, trackUsage } from './geminiKeys';
 import { getSkills } from './skillLoader';
 import fs from 'fs';
 import path from 'path';
+import { getCachedVinDecode, getVinDecodeForCar, VinDecodeRecord } from './vinDecode';
 
 export interface VehicleAnalysisRecord {
   item: string;
@@ -60,6 +61,37 @@ interface AnalysisPayload {
   recommendedPhotos?: string[];
   suggestedIntroLines?: string[];
   summaryText?: string;
+}
+
+function enrichWithVinDecodeHints(payload: Required<AnalysisPayload>, car: CarRecord, vinDecode: VinDecodeRecord | null): Required<AnalysisPayload> {
+  if (!car.vin) {
+    return payload;
+  }
+
+  if (!vinDecode) {
+    const hasHint = payload.reviewHints.some(hint => hint.field === 'vin_decode');
+    if (!hasHint) {
+      payload.reviewHints.unshift({
+        field: 'vin_decode',
+        reason: '目前沒有取得 VIN decode 結果，8891 規格欄位會較依賴既有資料與人工確認。',
+        severity: 'warning',
+        suggestedValue: null,
+      });
+    }
+    if (!payload.summaryText) {
+      payload.summaryText = 'VIN decode 尚未取得，部分規格需人工確認。';
+    }
+    return payload;
+  }
+
+  if (vinDecode.engineDisplacementL) {
+    payload.baselineFindings.unshift(`VIN decode 顯示排氣量約 ${vinDecode.engineDisplacementL}L`);
+  }
+  if (vinDecode.bodyClass) {
+    payload.baselineFindings.unshift(`VIN decode 車身型式為 ${vinDecode.bodyClass}`);
+  }
+
+  return payload;
 }
 
 function buildSkillPrompt(): string {
@@ -226,8 +258,29 @@ function buildAnalysisPrompt(car: CarRecord): string {
   return `${buildSkillPrompt()}\n\n你是一個豪華車銷售支援分析器。請根據提供的車輛資料，輸出 JSON，協助業務先掌握這台新車有哪些亮點、哪些資訊需要補確認，以及最值得補哪些照片。\n\n限制：\n- 不要把沒有證據的內容講成已確認事實。\n- 如果只知道可能有特點，應寫成 review hint。\n- 不要輸出 markdown。只輸出 JSON。\n\nJSON 結構：\n{\n  "baselineFindings": ["..."],\n  "reviewHints": [{"field":"...","reason":"...","severity":"info|warning","suggestedValue":null}],\n  "recommendedPhotos": ["..."],\n  "suggestedIntroLines": ["..."],\n  "summaryText": "..."\n}\n\n車輛資料：\n- item: ${car.item}\n- brand: ${car.brand}\n- model: ${car.model}\n- year: ${car.year}\n- mileage: ${car.mileage || '未提供'}\n- vin: ${car.vin || '未提供'}\n- status: ${car.status || '未提供'}\n- exteriorColor: ${car.exteriorColor || '未提供'}\n- interiorColor: ${car.interiorColor || '未提供'}\n- modification: ${car.modification || '未提供'}\n- note: ${car.note || '未提供'}\n- owner: ${car.owner || '未提供'}\n- price: ${car.price || '未提供'}\n`;
 }
 
+function buildVinDecodeText(vinDecode: VinDecodeRecord | null): string {
+  if (!vinDecode) return '';
+
+  return [
+    '',
+    'VIN decode:',
+    `- make: ${vinDecode.make || '未提供'}`,
+    `- model: ${vinDecode.model || '未提供'}`,
+    `- year: ${vinDecode.year || '未提供'}`,
+    `- engineDisplacementL: ${vinDecode.engineDisplacementL || '未提供'}`,
+    `- fuelType: ${vinDecode.fuelType || '未提供'}`,
+    `- horsepower: ${vinDecode.horsepower || '未提供'}`,
+    `- driveType: ${vinDecode.driveType || '未提供'}`,
+    `- bodyClass: ${vinDecode.bodyClass || '未提供'}`,
+    `- doors: ${vinDecode.doors || '未提供'}`,
+    `- transmissionStyle: ${vinDecode.transmissionStyle || '未提供'}`,
+    '',
+  ].join('\n');
+}
+
 export async function runBaselineAnalysis(car: CarRecord): Promise<VehicleAnalysisRecord> {
-  const prompt = buildAnalysisPrompt(car);
+  const vinDecode = await getVinDecodeForCar(car, true);
+  const prompt = `${buildAnalysisPrompt(car)}${buildVinDecodeText(vinDecode)}`;
 
   try {
     const raw = await withGeminiRetry(async (apiKey) => {
@@ -240,12 +293,12 @@ export async function runBaselineAnalysis(car: CarRecord): Promise<VehicleAnalys
       return resp.response.text();
     });
 
-    const payload = parseAnalysisResponse(raw, car);
+    const payload = enrichWithVinDecodeHints(parseAnalysisResponse(raw, car), car, vinDecode);
     const status = payload.reviewHints.length > 0 ? 'needs_attention' : 'baseline_done';
     upsertAnalysis(car.item, status, payload, '');
     return getVehicleAnalysis(car.item)!;
   } catch (err: any) {
-    const fallback = buildFallbackAnalysis(car);
+    const fallback = enrichWithVinDecodeHints(buildFallbackAnalysis(car), car, vinDecode);
     upsertAnalysis(car.item, 'needs_attention', fallback, err.message || 'analysis failed');
     return getVehicleAnalysis(car.item)!;
   }

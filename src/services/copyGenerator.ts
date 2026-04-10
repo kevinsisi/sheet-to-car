@@ -6,6 +6,7 @@ import db from '../db/connection';
 import { loadPlatformPrompt } from '../prompts/promptLoader';
 import { LoadedSkill, selectSkillsFor8891 } from './skillLoader';
 import { getConfirmedVehicleContext } from './vehicleAnalysis';
+import { getVinDecodeForCar, VinDecodeRecord } from './vinDecode';
 
 const PLATFORMS = ['官網', 'Facebook', '8891'] as const;
 export type Platform = typeof PLATFORMS[number];
@@ -156,11 +157,30 @@ function build8891ReviewHints(car: CarRecord, member: TeamMember, content: strin
   return hints;
 }
 
-function buildPrompt(car: CarRecord, platform: Platform, member: TeamMember, prefs: Record<string, string>): string {
+function buildVinDecodeBlock(vinDecode: VinDecodeRecord | null): string {
+  if (!vinDecode) return '';
+
+  return `\n\n## VIN Decode（外部依據，優先用於規格判斷）
+- 品牌: ${vinDecode.make || '未提供'}
+- 車型: ${vinDecode.model || '未提供'}
+- 年份: ${vinDecode.year || '未提供'}
+- 汽缸數: ${vinDecode.engineCylinders || '未提供'}
+- 排氣量(L): ${vinDecode.engineDisplacementL || '未提供'}
+- 引擎型號: ${vinDecode.engineModel || '未提供'}
+- 燃料: ${vinDecode.fuelType || '未提供'}
+- 馬力: ${vinDecode.horsepower || '未提供'}
+- 驅動: ${vinDecode.driveType || '未提供'}
+- 車身型式: ${vinDecode.bodyClass || '未提供'}
+- 門數: ${vinDecode.doors || '未提供'}
+- 變速箱: ${vinDecode.transmissionStyle || '未提供'}`;
+}
+
+async function buildPrompt(car: CarRecord, platform: Platform, member: TeamMember, prefs: Record<string, string>): Promise<string> {
   const customPrompt = getCustomPrompt();
   const contactBlock = buildContactBlock(member);
   const skills = getPlatformSkills(platform);
   const vehicleContext = getConfirmedVehicleContext(car.item);
+  const vinDecode = await getVinDecodeForCar(car, true);
 
   let prompt = loadPlatformPrompt(platform);
 
@@ -214,6 +234,8 @@ function buildPrompt(car: CarRecord, platform: Platform, member: TeamMember, pre
     prompt += `\n\n## 尚未確認欄位（不可寫成已確認事實）\n- ${vehicleContext.pendingReviewFields.join('、')}`;
   }
 
+  prompt += buildVinDecodeBlock(vinDecode);
+
   prompt += `\n\n請根據以上資料，生成${platform}平台的完整文案。直接輸出文案，不要加額外說明。`;
 
   return prompt;
@@ -227,7 +249,7 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
   const skills = getPlatformSkills(platform);
   const vehicleContext = getConfirmedVehicleContext(car.item);
 
-  const prompt = buildPrompt(car, platform, member, prefs);
+  const prompt = await buildPrompt(car, platform, member, prefs);
 
   const result = await withGeminiRetry(async (apiKey) => {
     const genai = new GoogleGenerativeAI(apiKey);

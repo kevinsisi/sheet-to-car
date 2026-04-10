@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getCars } from '../services/carInventory';
 import { analyzeVehiclePhotos, applyReviewDecision, getLatestPhotoAnalysis, getPendingVehicleAnalyses, getVehicleAnalysis, runBaselineAnalysis } from '../services/vehicleAnalysis';
+import { getCachedVinDecode } from '../services/vinDecode';
 
 const router = Router();
 
@@ -12,11 +13,17 @@ router.get('/pending', (_req: Request, res: Response) => {
   }
 });
 
-router.get('/:item', (req: Request, res: Response) => {
+router.get('/:item', async (req: Request, res: Response) => {
   try {
     const analysis = getVehicleAnalysis(req.params.item);
     if (!analysis) return res.status(404).json({ error: 'analysis not found' });
-    return res.json({ ...analysis, photoAnalysis: getLatestPhotoAnalysis(req.params.item) });
+    const cars = await getCars();
+    const car = cars.find(entry => entry.item === req.params.item);
+    return res.json({
+      ...analysis,
+      photoAnalysis: getLatestPhotoAnalysis(req.params.item),
+      vinDecode: car ? getCachedVinDecode(car.vin) : null,
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -29,7 +36,7 @@ router.post('/:item/run-baseline', async (req: Request, res: Response) => {
     if (!car) return res.status(404).json({ error: 'car not found' });
 
     const analysis = await runBaselineAnalysis(car);
-    return res.json({ ...analysis, photoAnalysis: getLatestPhotoAnalysis(req.params.item) });
+    return res.json({ ...analysis, photoAnalysis: getLatestPhotoAnalysis(req.params.item), vinDecode: getCachedVinDecode(car.vin) });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
