@@ -36,6 +36,12 @@ export interface GeneratedCopyResult {
   };
 }
 
+interface ValidationMessage {
+  field: string;
+  message: string;
+  type: 'error' | 'warning';
+}
+
 function getTeamMembers(): TeamMember[] {
   return db.prepare('SELECT name, english_name, phone, line_id, line_url FROM team_members WHERE is_active = 1').all() as TeamMember[];
 }
@@ -99,6 +105,126 @@ function parseGeneratedJson(content: string): any | null {
   } catch {
     return null;
   }
+}
+
+function normalize8891Json(data: any): any {
+  if (!data || typeof data !== 'object') return data;
+
+  const normalized = JSON.parse(JSON.stringify(data));
+  normalized.basic = normalized.basic || {};
+  normalized.specs = normalized.specs || {};
+  normalized.contact = normalized.contact || {};
+  normalized.listing = normalized.listing || {};
+
+  if (typeof normalized.basic.year === 'string') {
+    normalized.basic.year = parseFirstInteger(normalized.basic.year) ?? normalized.basic.year;
+  }
+  if (typeof normalized.basic.mileage === 'string') {
+    normalized.basic.mileage = parseMileage(normalized.basic.mileage);
+  }
+  if (typeof normalized.basic.price === 'string') {
+    normalized.basic.price = parsePrice(normalized.basic.price);
+  }
+  if (typeof normalized.specs.engineDisplacement === 'string') {
+    normalized.specs.engineDisplacement = parseFirstInteger(normalized.specs.engineDisplacement) ?? normalized.specs.engineDisplacement;
+  }
+  if (typeof normalized.specs.doors === 'string') {
+    normalized.specs.doors = parseFirstInteger(normalized.specs.doors) ?? normalized.specs.doors;
+  }
+  if (typeof normalized.specs.seats === 'string') {
+    normalized.specs.seats = parseFirstInteger(normalized.specs.seats) ?? normalized.specs.seats;
+  }
+  if (typeof normalized.specs.horsepower === 'string') {
+    normalized.specs.horsepower = parseFirstInteger(normalized.specs.horsepower) ?? normalized.specs.horsepower;
+  }
+  if (typeof normalized.specs.torque === 'string') {
+    normalized.specs.torque = parseFirstInteger(normalized.specs.torque) ?? normalized.specs.torque;
+  }
+
+  normalized.specs.transmission = normalizeTransmission(normalized.specs.transmission) || normalized.specs.transmission;
+  normalized.specs.fuelType = normalizeFuelType(normalized.specs.fuelType) || normalized.specs.fuelType;
+  normalized.specs.bodyType = normalizeBodyType(normalized.specs.bodyType, normalized.basic.model || '') || normalized.specs.bodyType;
+  normalized.specs.drivetrain = normalizeDrivetrain(normalized.specs.drivetrain) || normalized.specs.drivetrain;
+
+  return normalized;
+}
+
+function validate8891CarData(data: any): ValidationMessage[] {
+  const messages: ValidationMessage[] = [];
+  const basic = data?.basic;
+  const specs = data?.specs;
+
+  if (!basic || typeof basic !== 'object') {
+    return [{ field: 'basic', message: '缺少 basic 欄位', type: 'error' }];
+  }
+
+  if (typeof basic.brand !== 'string' || basic.brand.length === 0) {
+    messages.push({ field: 'basic.brand', message: '品牌為必填欄位', type: 'error' });
+  }
+  if (typeof basic.model !== 'string' || basic.model.length === 0) {
+    messages.push({ field: 'basic.model', message: '型號為必填欄位', type: 'error' });
+  }
+  if (typeof basic.year !== 'number' || basic.year < 1900 || basic.year > 2030) {
+    messages.push({ field: 'basic.year', message: '年份必須在 1900-2030 之間', type: 'error' });
+  }
+  if (basic.mileage === null || basic.mileage === undefined) {
+    messages.push({ field: 'basic.mileage', message: '里程數未填寫（將跳過此欄位）', type: 'warning' });
+  } else if (typeof basic.mileage !== 'number' || basic.mileage < 0) {
+    messages.push({ field: 'basic.mileage', message: '里程數必須為非負數', type: 'error' });
+  }
+  if (basic.price === null || basic.price === undefined) {
+    messages.push({ field: 'basic.price', message: '價格未填寫（將跳過此欄位）', type: 'warning' });
+  } else if (typeof basic.price !== 'number' || basic.price < 0) {
+    messages.push({ field: 'basic.price', message: '價格必須為非負數', type: 'error' });
+  }
+
+  if (specs && typeof specs === 'object') {
+    const validTransmissions = ['automatic', 'manual', 'cvt', 'dct'];
+    const validFuelTypes = ['gasoline', 'diesel', 'hybrid', 'electric', 'plugin_hybrid'];
+    const validBodyTypes = ['sedan', 'suv', 'hatchback', 'coupe', 'convertible', 'wagon', 'van', 'truck', 'mpv'];
+    const validDrivetrains = ['2WD', '4WD', 'AWD'];
+
+    if (specs.transmission && !validTransmissions.includes(specs.transmission)) {
+      messages.push({ field: 'specs.transmission', message: '無效的變速箱類型', type: 'error' });
+    }
+    if (specs.fuelType && !validFuelTypes.includes(specs.fuelType)) {
+      messages.push({ field: 'specs.fuelType', message: '無效的燃料類型', type: 'error' });
+    }
+    if (specs.bodyType && !validBodyTypes.includes(specs.bodyType)) {
+      messages.push({ field: 'specs.bodyType', message: '無效的車身類型', type: 'error' });
+    }
+    if (specs.drivetrain && !validDrivetrains.includes(specs.drivetrain)) {
+      messages.push({ field: 'specs.drivetrain', message: '無效的驅動方式', type: 'error' });
+    }
+    if (specs.color === null || specs.color === undefined) {
+      messages.push({ field: 'specs.color', message: '車色未填寫（將跳過此欄位）', type: 'warning' });
+    }
+  }
+
+  return messages;
+}
+
+function finalize8891Content(content: string): { content: string; validationHints: CopyReviewHint[] } {
+  const parsed = parseGeneratedJson(content);
+  if (!parsed) {
+    return {
+      content,
+      validationHints: [{ field: 'json', reason: '8891 內容不是合法 JSON，post-helper 無法使用。', severity: 'warning', suggestedValue: null }],
+    };
+  }
+
+  const normalized = normalize8891Json(parsed);
+  const validationHints = validate8891CarData(normalized).map(message => ({
+    field: message.field,
+    reason: message.message,
+    severity: (message.type === 'error' ? 'warning' : 'info') as 'warning' | 'info',
+    suggestedValue: null,
+  }));
+
+  return {
+    content: JSON.stringify(normalized, null, 2),
+    validationHints,
+  };
 }
 
 function build8891ReviewHints(car: CarRecord, member: TeamMember, content: string): CopyReviewHint[] {
@@ -398,7 +524,7 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
 
   const prompt = await buildPrompt(car, platform, member, prefs);
 
-  const result = await withGeminiRetry(async (apiKey) => {
+  const rawResult = await withGeminiRetry(async (apiKey) => {
     const genai = new GoogleGenerativeAI(apiKey);
     const model = genai.getGenerativeModel({
       model: getGeminiModel(),
@@ -412,6 +538,8 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
 
     return text;
   });
+
+  const finalized = platform === '8891' ? finalize8891Content(rawResult) : { content: rawResult, validationHints: [] as CopyReviewHint[] };
 
   // Remove existing draft to prevent duplicates
   db.prepare(`
@@ -428,11 +556,13 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
   db.prepare(`
     INSERT INTO car_copies (item, platform, content, status, confirmed_feature_count, pending_field_count)
     VALUES (?, ?, ?, 'draft', ?, ?)
-  `).run(car.item, platform, result, generationContext.confirmedFeatureCount, generationContext.pendingFieldCount);
+  `).run(car.item, platform, finalized.content, generationContext.confirmedFeatureCount, generationContext.pendingFieldCount);
 
   return {
-    content: result,
-    reviewHints: platform === '8891' ? build8891ReviewHints(car, member, result) : [],
+    content: finalized.content,
+    reviewHints: platform === '8891'
+      ? [...build8891ReviewHints(car, member, finalized.content), ...finalized.validationHints]
+      : [],
     activeSkills: skills.map(skill => skill.name),
     generationContext,
   };

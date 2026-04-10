@@ -16,6 +16,7 @@
 - 已接受的分析結果應寫入結構化 confirmed-features 表，而不只散落在 note/modification 文字欄位，供後續平台生成穩定重用。
 - VIN decode 只能作為輔助外部依據；若解碼失敗、逾時或無資料，主流程不得中斷，必須回退到既有資料與人工確認提示。
 - 8891 產出在不改變外部 JSON 形狀的前提下，必須先組出與 post-helper schema 相容的 draft 結構，再由模型保守補齊缺值與 listing 文案。
+- 8891 生成完成後，需在 sheet-to-car 端做與 post-helper 相容的基本驗證與常見值正規化；若不合法，必須回傳 review hints 而非直接把錯資料交給上傳工具。
 
 ## Success Criteria
 - [x] 新車同步後會自動建立 baseline analysis。
