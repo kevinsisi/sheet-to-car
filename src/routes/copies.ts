@@ -240,9 +240,14 @@ router.post('/:item/generate', async (req: Request, res: Response) => {
       const lockKey = getGenerationLockKey(req.params.item, '全部');
       activeGenerationLocks.add(lockKey);
       try {
-        const results = await generateAllCopies(car);
+        const generated = await generateAllCopies(car);
         const copies = getCopies(req.params.item);
-        return res.json({ results, copies });
+        return res.json({
+          results: generated.results,
+          errors: generated.errors,
+          copies,
+          hasErrors: Object.keys(generated.errors).length > 0,
+        });
       } finally {
         activeGenerationLocks.delete(lockKey);
       }

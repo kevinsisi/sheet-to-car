@@ -616,18 +616,27 @@ export async function generateCopy(car: CarRecord, platform: Platform): Promise<
 }
 
 /** Generate copies for all platforms */
-export async function generateAllCopies(car: CarRecord): Promise<Record<Platform, string>> {
+export async function generateAllCopies(car: CarRecord): Promise<{
+  results: Partial<Record<Platform, string>>;
+  errors: Partial<Record<Platform, string>>;
+}> {
   // Clear all existing drafts for this car before regenerating all
   db.prepare(`
     DELETE FROM car_copies 
     WHERE item = ? AND status = 'draft'
   `).run(car.item);
 
-  const results: Record<string, string> = {};
+  const results: Partial<Record<Platform, string>> = {};
+  const errors: Partial<Record<Platform, string>> = {};
   for (const platform of PLATFORMS) {
-    results[platform] = await generateCopy(car, platform);
+    try {
+      results[platform] = await generateCopy(car, platform);
+    } catch (err: any) {
+      errors[platform] = err.message || '生成失敗';
+    }
   }
-  return results as Record<Platform, string>;
+
+  return { results, errors };
 }
 
 /** Get existing copies for a car */

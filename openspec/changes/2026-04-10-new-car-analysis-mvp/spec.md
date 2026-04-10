@@ -20,6 +20,7 @@
 - 每份 8891 copy 需持久保存 validation summary，讓 UI 能直接顯示是否可直接交給 post-helper、是否僅有警告、或有阻塞問題。
 - Dashboard 應集中列出有 8891 阻塞問題的車，並支援一鍵跳到對應車輛處理。
 - 前端應在使用者第一次打開新版本時顯示版本更新提示，內容由 changelog 資料驅動，而不是寫死在 modal 模板中。
+- 全部生成文案時，平台失敗不得抹掉已成功的平台；API 與 UI 必須回報 per-platform success/error，讓使用者只重試失敗平台。
 
 ## Success Criteria
 - [x] 新車同步後會自動建立 baseline analysis。

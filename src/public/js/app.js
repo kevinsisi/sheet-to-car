@@ -581,9 +581,18 @@ function app() {
           this.finishGeneration(item, '全部', err.error || '全部文案生成失敗');
           return;
         }
+        const data = await resp.json();
         this.lastGenerationInfo = null;
         await Promise.all([this.loadCopies(item), this.loadCopySummary(), this.load8891ValidationBlockers()]);
-        this.finishGeneration(item, '全部', `${item} 全部文案已生成`);
+        const successPlatforms = Object.keys(data.results || {});
+        const failedPlatforms = Object.keys(data.errors || {});
+        if (failedPlatforms.length > 0 && successPlatforms.length > 0) {
+          this.finishGeneration(item, '全部', `${item} 已生成 ${successPlatforms.join('、')}；失敗：${failedPlatforms.join('、')}`);
+        } else if (failedPlatforms.length > 0) {
+          this.finishGeneration(item, '全部', `${item} 全部平台生成失敗：${failedPlatforms.join('、')}`);
+        } else {
+          this.finishGeneration(item, '全部', `${item} 全部文案已生成`);
+        }
       } catch (err) {
         this.finishGeneration(item, '全部', '生成失敗: ' + err.message);
       }
