@@ -6,7 +6,7 @@ import { getGeminiModel, trackUsage } from './geminiKeys';
 import { getSkills } from './skillLoader';
 import fs from 'fs';
 import path from 'path';
-import { getCachedVinDecode, getVinDecodeForCar, VinDecodeRecord } from './vinDecode';
+import { getVinDecodeForCar, VinDecodeRecord } from './vinDecode';
 
 export interface VehicleAnalysisRecord {
   item: string;
@@ -60,6 +60,31 @@ export interface UploadedPhotoInput {
   name: string;
   mimeType: string;
   dataUrl: string;
+}
+
+export type ReviewAcceptMode = 'supplement' | 'replace';
+
+const REPLACEABLE_REVIEW_FIELDS = new Set([
+  'specs.engineDisplacement',
+  'specs.doors',
+  'specs.seats',
+  'specs.horsepower',
+  'specs.torque',
+]);
+
+function canReplaceReviewField(field: string): boolean {
+  return REPLACEABLE_REVIEW_FIELDS.has(field);
+}
+
+function isValidReplaceValue(field: string, value: string): boolean {
+  const normalized = String(value || '').trim();
+  if (!normalized) return false;
+
+  if (Array.from(REPLACEABLE_REVIEW_FIELDS).includes(field)) {
+    return /^\d+$/.test(normalized);
+  }
+
+  return false;
 }
 
 interface AnalysisPayload {
@@ -425,9 +450,13 @@ export function getConfirmedVehicleFieldMap(item: string): ConfirmedVehicleField
   return result;
 }
 
-function upsertConfirmedFeature(item: string, source: 'baseline' | 'photo', field: string, value: string): void {
+function upsertConfirmedFeature(item: string, source: 'baseline' | 'photo', field: string, value: string, mode: ReviewAcceptMode): void {
   const normalized = value.trim();
   if (!normalized) return;
+
+  if (mode === 'replace') {
+    db.prepare('DELETE FROM vehicle_confirmed_features WHERE item = ? AND field = ?').run(item, field);
+  }
 
   db.prepare(`
     INSERT INTO vehicle_confirmed_features (item, source, field, value, updated_at)
@@ -533,7 +562,58 @@ function updateAnalysisStatus(item: string): void {
   db.prepare('UPDATE vehicle_analysis SET status = ?, updated_at = datetime(\'now\') WHERE item = ?').run(status, item);
 }
 
-function updateCarFieldFromReview(item: string, field: string, value: string): void {
+function replaceTaggedLineBlock(text: string, field: string, value: string): string {
+  const normalized = value.trim();
+  if (!normalized) return text;
+
+  const prefix = `${field}:`;
+  const source = String(text || '');
+  const tokens = source.split(/(\s*\|\s*|\n)/);
+  const rebuilt: string[] = [];
+  let pendingDelimiter = '';
+  let replaced = false;
+
+  const flushDelimiter = () => {
+    if (pendingDelimiter && rebuilt.length > 0) {
+      rebuilt.push(pendingDelimiter);
+    }
+    pendingDelimiter = '';
+  };
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (index % 2 === 1) {
+      pendingDelimiter = token;
+      continue;
+    }
+
+    const segment = token.trim();
+    if (!segment) continue;
+
+    if (segment.startsWith(prefix)) {
+      if (!replaced) {
+        flushDelimiter();
+        rebuilt.push(`${prefix} ${normalized}`);
+        replaced = true;
+      }
+      pendingDelimiter = '';
+      continue;
+    }
+
+    flushDelimiter();
+    rebuilt.push(segment);
+  }
+
+  if (!replaced) {
+    const delimiter = source.includes('\n') ? '\n' : (source.trim() ? ' | ' : '');
+    if (delimiter && rebuilt.length > 0) rebuilt.push(delimiter);
+    rebuilt.push(`${prefix} ${normalized}`);
+  }
+
+  return rebuilt.join('');
+}
+
+function updateCarFieldFromReview(item: string, field: string, value: string, mode: ReviewAcceptMode): void {
   const normalized = value.trim();
   if (!normalized) return;
 
@@ -548,7 +628,9 @@ function updateCarFieldFromReview(item: string, field: string, value: string): v
   if (field.startsWith('specs.') || field === 'contact') {
     const row = db.prepare('SELECT note FROM cars WHERE item = ?').get(item) as any;
     if (!row) return;
-    const nextNote = appendUniqueText(row.note || '', `${field}: ${normalized}`);
+    const nextNote = mode === 'replace'
+      ? replaceTaggedLineBlock(row.note || '', field, normalized)
+      : appendUniqueText(row.note || '', `${field}: ${normalized}`);
     db.prepare('UPDATE cars SET note = ?, updated_at = datetime(\'now\') WHERE item = ?').run(nextNote, item);
   }
 }
@@ -559,13 +641,16 @@ function removeHintAndMaybePromote(
   hintField: string,
   hintReason: string,
   decision: 'accept' | 'ignore',
-  value: string
+  value: string,
+  acceptMode: ReviewAcceptMode
 ): {
   reviewHints: Array<{ field: string; reason: string; severity: 'info' | 'warning'; suggestedValue?: string | null }>;
   findings: string[];
 } {
   const nextHints = hints.filter(hint => !(hint.field === hintField && hint.reason === hintReason));
-  const nextFindings = [...findings];
+  const nextFindings = decision === 'accept' && acceptMode === 'replace'
+    ? findings.filter(line => line !== `已確認 ${hintField}：${value.trim()}` && !line.startsWith(`已確認 ${hintField}：`))
+    : [...findings];
 
   if (decision === 'accept' && value.trim()) {
     const line = hintField === 'modification' || hintField === 'photo_feature'
@@ -579,19 +664,59 @@ function removeHintAndMaybePromote(
   return { reviewHints: nextHints, findings: nextFindings };
 }
 
+function removeConfirmedFindingLines(findings: string[], field: string): string[] {
+  return findings.filter(line => !line.startsWith(`已確認 ${field}：`));
+}
+
+function scrubReplaceArtifactsInOtherSource(item: string, source: 'baseline' | 'photo', field: string): void {
+  if (source === 'baseline') {
+    const currentPhoto = getLatestPhotoAnalysis(item);
+    if (!currentPhoto) return;
+    const nextFindings = removeConfirmedFindingLines(currentPhoto.findings, field);
+    db.prepare('UPDATE vehicle_photo_analysis SET findings_json = ?, summary_text = ? WHERE id = ?').run(
+      JSON.stringify(nextFindings),
+      currentPhoto.reviewHints.length > 0 ? `照片分析仍有 ${currentPhoto.reviewHints.length} 個待確認項目。` : '照片分析待確認項目已處理完成。',
+      currentPhoto.id,
+    );
+    return;
+  }
+
+  const currentBaseline = getVehicleAnalysis(item);
+  if (!currentBaseline) return;
+  const nextFindings = removeConfirmedFindingLines(currentBaseline.baselineFindings, field);
+  db.prepare('UPDATE vehicle_analysis SET baseline_findings_json = ?, summary_text = ?, updated_at = datetime(\'now\') WHERE item = ?').run(
+    JSON.stringify(nextFindings),
+    currentBaseline.reviewHints.length > 0 ? `這台車還有 ${currentBaseline.reviewHints.length} 個待確認特徵。` : '這台車的基礎分析待確認項目已處理完成。',
+    item,
+  );
+}
+
 export function applyReviewDecision(
   item: string,
   source: 'baseline' | 'photo',
   field: string,
   reason: string,
   decision: 'accept' | 'ignore',
-  value: string
+  value: string,
+  acceptMode: ReviewAcceptMode = 'supplement'
 ): { analysis: VehicleAnalysisRecord | null; photoAnalysis: VehiclePhotoAnalysisRecord | null } {
+  if (decision === 'accept' && !value.trim()) {
+    throw new Error('accepted review requires a confirmed value');
+  }
+
+  if (acceptMode === 'replace' && !canReplaceReviewField(field)) {
+    throw new Error('replace mode is only supported for structured fields');
+  }
+
+  if (acceptMode === 'replace' && !isValidReplaceValue(field, value)) {
+    throw new Error('replace value is not valid for this structured field');
+  }
+
   if (source === 'baseline') {
     const current = getVehicleAnalysis(item);
     if (!current) throw new Error('analysis not found');
 
-    const updated = removeHintAndMaybePromote(current.reviewHints, current.baselineFindings, field, reason, decision, value);
+    const updated = removeHintAndMaybePromote(current.reviewHints, current.baselineFindings, field, reason, decision, value, acceptMode);
     db.prepare(`
       UPDATE vehicle_analysis
       SET review_hints_json = ?, baseline_findings_json = ?, summary_text = ?, updated_at = datetime('now')
@@ -606,7 +731,7 @@ export function applyReviewDecision(
     const current = getLatestPhotoAnalysis(item);
     if (!current) throw new Error('photo analysis not found');
 
-    const updated = removeHintAndMaybePromote(current.reviewHints, current.findings, field, reason, decision, value);
+    const updated = removeHintAndMaybePromote(current.reviewHints, current.findings, field, reason, decision, value, acceptMode);
     db.prepare(`
       UPDATE vehicle_photo_analysis
       SET review_hints_json = ?, findings_json = ?, summary_text = ?
@@ -620,8 +745,11 @@ export function applyReviewDecision(
   }
 
   if (decision === 'accept') {
-    updateCarFieldFromReview(item, field, value);
-    upsertConfirmedFeature(item, source, field, value);
+    updateCarFieldFromReview(item, field, value, acceptMode);
+    upsertConfirmedFeature(item, source, field, value, acceptMode);
+    if (acceptMode === 'replace') {
+      scrubReplaceArtifactsInOtherSource(item, source, field);
+    }
   }
 
   updateAnalysisStatus(item);

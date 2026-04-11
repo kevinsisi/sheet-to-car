@@ -392,7 +392,8 @@
                                   <input type="text" :value="getReviewDraft('baseline', hint)" @input="reviewDrafts[reviewDraftKey('baseline', hint)] = $event.target.value"
                                     placeholder="可補充確認值"
                                     class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1 text-xs flex-1 min-w-40">
-                                  <button @click.stop="applyReview(car.item, 'baseline', hint, 'accept')" class="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700">接受</button>
+                                  <button @click.stop="applyReview(car.item, 'baseline', hint, 'accept', 'supplement')" class="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700">補充</button>
+                                  <button x-show="canReplaceReviewField(hint.field)" @click.stop="applyReview(car.item, 'baseline', hint, 'accept', 'replace')" class="text-xs px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">覆蓋</button>
                                   <button @click.stop="applyReview(car.item, 'baseline', hint, 'ignore')" class="text-xs px-2 py-1 rounded bg-gray-500 text-white hover:bg-gray-600">忽略</button>
                                 </div>
                               </li>
@@ -455,7 +456,8 @@
                                   <input type="text" :value="getReviewDraft('photo', hint)" @input="reviewDrafts[reviewDraftKey('photo', hint)] = $event.target.value"
                                     placeholder="可補充確認值"
                                     class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1 text-xs flex-1 min-w-40">
-                                  <button @click.stop="applyReview(car.item, 'photo', hint, 'accept')" class="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700">接受</button>
+                                  <button @click.stop="applyReview(car.item, 'photo', hint, 'accept', 'supplement')" class="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700">補充</button>
+                                  <button x-show="canReplaceReviewField(hint.field)" @click.stop="applyReview(car.item, 'photo', hint, 'accept', 'replace')" class="text-xs px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">覆蓋</button>
                                   <button @click.stop="applyReview(car.item, 'photo', hint, 'ignore')" class="text-xs px-2 py-1 rounded bg-gray-500 text-white hover:bg-gray-600">忽略</button>
                                 </div>
                               </li>

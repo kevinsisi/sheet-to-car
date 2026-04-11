@@ -1,8 +1,15 @@
 function app() {
   const REQUIRED_COPY_PLATFORMS = 3;
-  const CURRENT_APP_VERSION = '1.6.0';
+  const CURRENT_APP_VERSION = '1.6.1';
   const LAST_SEEN_VERSION_KEY = 'sheet-to-car:last-seen-version';
   const CHANGELOG = [
+    {
+      version: '1.6.1',
+      notes: [
+        '照片與基礎分析的人工確認現在可選擇補充或覆蓋既有特徵。',
+        '已確認特徵可長期保留在車輛資料中，不會因重新分析自動消失。',
+      ],
+    },
     {
       version: '1.6.0',
       notes: [
@@ -632,6 +639,20 @@ function app() {
       return `${source}|${hint.field}|${hint.reason}`;
     },
 
+    defaultReviewAcceptMode(hint) {
+      return hint.field?.startsWith('specs.') ? 'replace' : 'supplement';
+    },
+
+    canReplaceReviewField(field) {
+      return [
+        'specs.engineDisplacement',
+        'specs.doors',
+        'specs.seats',
+        'specs.horsepower',
+        'specs.torque',
+      ].includes(field);
+    },
+
     getReviewDraft(source, hint) {
       const key = this.reviewDraftKey(source, hint);
       if (!(key in this.reviewDrafts)) {
@@ -640,9 +661,10 @@ function app() {
       return this.reviewDrafts[key];
     },
 
-    async applyReview(item, source, hint, decision) {
+    async applyReview(item, source, hint, decision, acceptMode = null) {
       const key = this.reviewDraftKey(source, hint);
       const value = decision === 'accept' ? (this.reviewDrafts[key] || hint.suggestedValue || '') : '';
+      const resolvedAcceptMode = acceptMode || this.defaultReviewAcceptMode(hint);
 
       try {
         const resp = await fetch(`/api/analysis/${item}/review`, {
@@ -654,6 +676,7 @@ function app() {
             reason: hint.reason,
             decision,
             value,
+            acceptMode: decision === 'accept' ? resolvedAcceptMode : undefined,
           }),
         });
 
@@ -668,13 +691,19 @@ function app() {
         this.expandedPhotoAnalysis = data.photoAnalysis;
         delete this.reviewDrafts[key];
         await Promise.all([this.loadPendingAnalyses(), this.loadCars(true), this.load8891ValidationBlockers()]);
-        this.copyToast = decision === 'accept' ? '已接受並更新資料' : '已忽略此提示';
+        this.copyToast = decision === 'accept'
+          ? (resolvedAcceptMode === 'replace' ? '已覆蓋既有特徵並更新資料' : '已補充特徵並更新資料')
+          : '已忽略此提示';
       } catch (err) {
         this.copyToast = '處理確認失敗: ' + err.message;
       }
 
       setTimeout(() => {
-        if (this.copyToast === '已接受並更新資料' || this.copyToast === '已忽略此提示') this.copyToast = '';
+        if (
+          this.copyToast === '已補充特徵並更新資料'
+          || this.copyToast === '已覆蓋既有特徵並更新資料'
+          || this.copyToast === '已忽略此提示'
+        ) this.copyToast = '';
       }, 2000);
     },
 
