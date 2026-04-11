@@ -17,6 +17,7 @@ interface TeamMember {
   phone: string;
   line_id: string;
   line_url: string;
+  aliases?: string;
 }
 
 export interface CopyReviewHint {
@@ -55,42 +56,59 @@ interface GenerationInputs {
 }
 
 function getTeamMembers(): TeamMember[] {
-  return db.prepare('SELECT name, english_name, phone, line_id, line_url FROM team_members WHERE is_active = 1').all() as TeamMember[];
+  return db.prepare('SELECT name, english_name, phone, line_id, line_url, aliases FROM team_members WHERE is_active = 1').all() as TeamMember[];
 }
 
 function findMemberByOwner(owner: string): TeamMember | null {
   const members = getTeamMembers();
-  const normalizedOwner = normalizeOwner(owner);
-  if (!normalizedOwner) return null;
-  return members.find(m =>
-    isOwnerMatched(normalizedOwner, m)
-  ) || null;
+  const ownerTokens = tokenizeOwnerIdentifiers(owner);
+  if (ownerTokens.length === 0) return null;
+
+  const matches = members.filter(member => isOwnerMatched(owner, member));
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function isOwnerMatched(owner: string, member: TeamMember): boolean {
-  return member.english_name === owner
-    || member.name.includes(owner)
-    || owner.includes(member.english_name)
-    || owner.includes(member.name);
+  const ownerTokens = tokenizeOwnerIdentifiers(owner);
+  if (ownerTokens.length === 0) return false;
+
+  const memberTokens = new Set([
+    normalizeOwner(member.english_name),
+    normalizeOwner(member.name),
+    ...String(member.aliases || '')
+      .split(',')
+      .map(token => normalizeOwner(token))
+      .filter(Boolean),
+  ].filter(Boolean));
+
+  return ownerTokens.some(token => memberTokens.has(token));
 }
 
 function normalizeOwner(owner: string): string {
   const raw = String(owner || '').trim();
   if (!raw) return '';
 
-  const aliasMap: Record<string, string> = {
-    '信翰': 'Hank',
-    '訂車信': 'Hank',
-    '訂車謝': 'James',
-    '訂車郭': '小郭',
-  };
+  return raw
+    .replace(/^訂車/, '')
+    .replace(/[（）()]/g, '')
+    .replace(/[\s\-_/]+/g, '')
+    .trim();
+}
 
-  if (aliasMap[raw]) return aliasMap[raw];
-  if (raw.startsWith('訂車')) {
-    return raw.replace(/^訂車/, '').trim();
-  }
+function tokenizeOwnerIdentifiers(owner: string): string[] {
+  const raw = String(owner || '').trim();
+  if (!raw) return [];
 
-  return raw;
+  const segments = raw
+    .replace(/[()（）]/g, ' ')
+    .split(/[\s,，/|]+/)
+    .map(segment => normalizeOwner(segment))
+    .filter(Boolean);
+
+  const normalizedWhole = normalizeOwner(raw);
+  if (normalizedWhole) segments.push(normalizedWhole);
+
+  return [...new Set(segments)];
 }
 
 function getUserPreferences(): Record<string, string> {
@@ -180,7 +198,7 @@ function normalize8891Json(data: any): any {
 
   normalized.specs.transmission = normalizeTransmission(normalized.specs.transmission) || normalized.specs.transmission;
   normalized.specs.fuelType = normalizeFuelType(normalized.specs.fuelType) || normalized.specs.fuelType;
-  normalized.specs.bodyType = normalizeBodyType(normalized.specs.bodyType, normalized.basic.model || '') || normalized.specs.bodyType;
+  normalized.specs.bodyType = classifyStructuredBodyType(normalized.specs.bodyType, normalized.basic.model || '') || normalized.specs.bodyType;
   normalized.specs.drivetrain = normalizeDrivetrain(normalized.specs.drivetrain) || normalized.specs.drivetrain;
 
   return normalized;
@@ -241,7 +259,7 @@ function validate8891CarData(data: any): ValidationMessage[] {
   return messages;
 }
 
-function finalize8891Content(content: string): {
+function finalize8891Content(content: string, car?: CarRecord): {
   content: string;
   validationHints: CopyReviewHint[];
   validationSummary: { status: 'ready' | 'warning' | 'error'; errorCount: number; warningCount: number };
@@ -257,6 +275,20 @@ function finalize8891Content(content: string): {
 
   const normalized = normalize8891Json(parsed);
   const validationMessages = validate8891CarData(normalized);
+  if (car) {
+    const explicitBodyType = inferExplicitBodyType(sanitizeModel(car.model || ''));
+    if (explicitBodyType && normalized?.specs?.bodyType) {
+      const actualBodyType = String(normalized.specs.bodyType);
+      const compatibleBodyTypes = explicitBodyType === 'mpv' ? ['mpv', 'van'] : [explicitBodyType];
+      if (!compatibleBodyTypes.includes(actualBodyType)) {
+      validationMessages.push({
+        field: 'specs.bodyType',
+        message: `車身型式與車型線索衝突：此車較可能是 ${explicitBodyType}，目前輸出為 ${actualBodyType}`,
+        type: 'error',
+      });
+      }
+    }
+  }
   const errorCount = validationMessages.filter(message => message.type === 'error').length;
   const warningCount = validationMessages.filter(message => message.type === 'warning').length;
   const validationHints = validationMessages.map(message => ({
@@ -325,7 +357,7 @@ function build8891ReviewHints(car: CarRecord, member: TeamMember, content: strin
   if (!normalizedOwner || !member || !isOwnerMatched(normalizedOwner, member)) {
     hints.push({
       field: 'contact',
-      reason: '業務聯絡人是依 owner 模糊比對取得，建議人工確認。',
+      reason: '業務聯絡人無法由 owner 與 alias 唯一匹配取得，建議人工確認。',
       severity: 'warning',
       suggestedValue: member?.name || null,
     });
@@ -420,10 +452,12 @@ function sanitizeBrand(value: string): string {
   return String(value || '')
     .replace(/[（(]([^)）]{1,20})[)）]/g, (full, inner) => {
       const text = String(inner || '').trim();
+      const preserveMeaningfulChinese = /^(邁巴赫|勞斯萊斯|藍寶堅尼|法拉利|保時捷|麥拉倫|奧斯頓馬丁)$/u.test(text);
       const looksLikeMetadata = /^原.+/.test(text)
         || /^\d{1,4}$/.test(text)
         || /^[ABPT]\d{1,4}$/i.test(text)
-        || /^(TW|JP|KR|韓國|日本|台灣)$/.test(text);
+        || /^(TW|JP|KR|韓國|日本|台灣)$/.test(text)
+        || (!preserveMeaningfulChinese && /^[\u4e00-\u9fff]{2,4}$/u.test(text));
       return looksLikeMetadata ? '' : full;
     })
     .replace(/\s+/g, ' ')
@@ -459,10 +493,11 @@ function normalizeFuelType(value?: string): 'gasoline' | 'diesel' | 'hybrid' | '
 
 function normalizeBodyType(value?: string, model = ''): 'sedan' | 'suv' | 'hatchback' | 'coupe' | 'convertible' | 'wagon' | 'van' | 'truck' | 'mpv' | undefined {
   const text = `${value || ''} ${model}`.toLowerCase();
-  const hasLmModel = /(?:^|\s|[-_/])(lm\d*[a-z]?)(?:$|\s|[-_/])/.test(text);
+  const hasLmModel = /(?:^|\s|[-_/])(lm\d*[a-z]?)(?=$|\s|[-_/]|[ -]*|[ -])/i.test(text)
+    || /lm\d+h/i.test(text);
   if (!text) return undefined;
   if (text.includes('convertible') || text.includes('spyder') || text.includes('spider') || text.includes('cabrio') || text.includes('敞篷')) return 'convertible';
-  if (text.includes('mpv') || hasLmModel || text.includes('alphard') || text.includes('vellfire') || text.includes('odyssey') || text.includes('serena') || text.includes('sienna') || text.includes('carnival') || text.includes('v-class') || text.includes('v class') || text.includes('staria')) return 'mpv';
+  if (text.includes('mpv') || text.includes('lm500h') || text.includes('lm350h') || text.includes('lm300h') || text.includes('alphard') || text.includes('vellfire') || text.includes('odyssey') || text.includes('serena') || text.includes('sienna') || text.includes('carnival') || text.includes('v-class') || text.includes('v class') || text.includes('staria')) return 'mpv';
   if (text.includes('suv') || text.includes('cullinan') || text.includes('urus') || text.includes('cayenne')) return 'suv';
   if (text.includes('wagon') || text.includes('estate') || text.includes('旅行')) return 'wagon';
   if (text.includes('hatchback')) return 'hatchback';
@@ -490,10 +525,50 @@ function pickConfirmedValue(fieldMap: Record<string, string[]>, ...keys: string[
   return undefined;
 }
 
+function inferExplicitBodyType(model: string): 'mpv' | 'suv' | 'coupe' | 'convertible' | undefined {
+  const text = String(model || '').toLowerCase();
+  if (!text) return undefined;
+
+  const mpvMarkers = ['lm500h', 'lm350h', 'lm300h', 'alphard', 'vellfire', 'odyssey', 'serena', 'sienna', 'carnival', 'v-class', 'v class', 'staria'];
+  if (mpvMarkers.some(marker => text.includes(marker))) return 'mpv';
+
+  const suvMarkers = ['urus', 'cullinan', 'cayenne'];
+  if (suvMarkers.some(marker => text.includes(marker))) return 'suv';
+
+  const convertibleMarkers = ['spyder', 'spider', 'cabrio', '敞篷'];
+  if (convertibleMarkers.some(marker => text.includes(marker))) return 'convertible';
+
+  const coupeMarkers = ['coupe', '911', 'roma', 'f8'];
+  if (coupeMarkers.some(marker => text.includes(marker))) return 'coupe';
+
+  return undefined;
+}
+
+function classifyStructuredBodyType(value?: string, model = ''): 'sedan' | 'suv' | 'hatchback' | 'coupe' | 'convertible' | 'wagon' | 'van' | 'truck' | 'mpv' | undefined {
+  const sourceText = String(value || '').toLowerCase();
+  const modelText = String(model || '').toLowerCase();
+  const combined = `${sourceText} ${modelText}`.trim();
+
+  if (!combined) return undefined;
+
+  if (sourceText.includes('convertible') || sourceText.includes('spyder') || sourceText.includes('spider') || sourceText.includes('cabrio') || sourceText.includes('敞篷')) return 'convertible';
+  if (sourceText.includes('wagon') || sourceText.includes('estate') || sourceText.includes('旅行')) return 'wagon';
+  if (sourceText.includes('hatchback')) return 'hatchback';
+  if (sourceText.includes('van')) return 'van';
+  if (sourceText.includes('truck')) return 'truck';
+  if (sourceText.includes('mpv')) return 'mpv';
+  if (sourceText.includes('suv') || sourceText.includes('cullinan') || sourceText.includes('urus') || sourceText.includes('cayenne')) return 'suv';
+  if (sourceText.includes('coupe') || sourceText.includes('gt') || sourceText.includes('911') || sourceText.includes('roma') || sourceText.includes('f8')) return 'coupe';
+  if (sourceText.includes('sedan') || sourceText.includes('ghost') || sourceText.includes('flying spur') || sourceText.includes('s-class')) return 'sedan';
+
+  return inferExplicitBodyType(modelText);
+}
+
 function build8891DraftJson(car: CarRecord, member: TeamMember, vinDecode: VinDecodeRecord | null): string {
   const confirmed = getConfirmedVehicleFieldMap(car.item);
   const cleanBrand = sanitizeBrand(car.brand || '');
   const cleanModel = sanitizeModel(car.model || '');
+  const explicitBodyType = inferExplicitBodyType(cleanModel || car.model || '');
   const draft = {
     basic: {
       brand: cleanBrand || car.brand || vinDecode?.make || '',
@@ -513,10 +588,10 @@ function build8891DraftJson(car: CarRecord, member: TeamMember, vinDecode: VinDe
       fuelType: normalizeFuelType(
         pickConfirmedValue(confirmed, 'specs.fuelType') || vinDecode?.fuelType
       ),
-      bodyType: normalizeBodyType(
+      bodyType: classifyStructuredBodyType(
         pickConfirmedValue(confirmed, 'specs.bodyType') || vinDecode?.bodyClass,
         cleanModel || car.model,
-      ),
+      ) || explicitBodyType,
       doors: parseFirstInteger(pickConfirmedValue(confirmed, 'specs.doors') || vinDecode?.doors || ''),
       seats: parseFirstInteger(pickConfirmedValue(confirmed, 'specs.seats') || ''),
       drivetrain: normalizeDrivetrain(
@@ -572,6 +647,7 @@ function buildPrompt(car: CarRecord, platform: Platform, inputs: GenerationInput
   const { prefs, vehicleContext, vinDecode } = inputs;
   const cleanBrand = sanitizeBrand(car.brand || '') || car.brand;
   const cleanModel = sanitizeModel(car.model || '');
+  const explicitBodyType = inferExplicitBodyType(cleanModel || car.model || '');
 
   let prompt = loadPlatformPrompt(platform);
 
@@ -665,7 +741,7 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
   });
 
   const finalized = platform === '8891'
-    ? finalize8891Content(rawResult)
+    ? finalize8891Content(rawResult, car)
     : {
         content: stripMarkdownCodeFence(rawResult),
         validationHints: [] as CopyReviewHint[],
@@ -743,7 +819,7 @@ export async function generateAllCopies(car: CarRecord): Promise<{
       });
 
       const finalized = platform === '8891'
-        ? finalize8891Content(rawResult)
+        ? finalize8891Content(rawResult, car)
         : {
             content: stripMarkdownCodeFence(rawResult),
             validationHints: [] as CopyReviewHint[],
