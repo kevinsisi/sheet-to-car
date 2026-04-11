@@ -630,7 +630,10 @@
         <!-- System Prompt -->
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
           <h2 class="text-lg font-bold mb-4">System Prompt（額外指示）</h2>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">在這裡加入的指示會套用到所有文案生成。留空則使用預設規範。</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">在這裡加入的指示會附加到所有平台 Prompt 後面。留空則只使用各平台的規範。</p>
+          <div class="mb-2 text-xs" :class="systemPromptEnabled ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'">
+            <span x-text="systemPromptEnabled ? '目前狀態：已啟用額外指示（會疊加在平台 Prompt 後）' : '目前狀態：未啟用額外指示，目前只吃平台 Prompt' "></span>
+          </div>
           <textarea x-model="systemPrompt" rows="6" placeholder="例如：語氣要更精品感、不要太多 emoji、強調稀缺性..."
             class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-full font-mono"></textarea>
           <button @click="savePrompt()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm mt-2">儲存 Prompt</button>
@@ -638,7 +641,7 @@
           <!-- Platform prompts (editable) -->
           <div class="mt-6 pt-4 border-t dark:border-gray-700">
             <h3 class="font-medium mb-1">平台文案規範</h3>
-            <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">可直接編輯各平台的 Prompt，儲存後立即生效。重置會還原為內建預設。</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">真正主導生成的是各平台 Prompt。若平台有自訂覆寫，會優先生效；System Prompt 只是額外疊加。</p>
             <div class="flex gap-2 mb-3">
               <template x-for="p in ['官網', 'Facebook', '8891']" :key="p">
                 <button @click="selectPlatformTab(p)"
@@ -647,6 +650,9 @@
               </template>
             </div>
             <div x-show="activePlatformTab" x-cloak>
+              <div class="mb-2 text-xs" :class="platformPromptMeta[activePlatformTab]?.isCustomized ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'">
+                <span x-text="platformPromptMeta[activePlatformTab]?.isCustomized ? '目前來源：使用者自訂覆寫（這份會直接生效）' : '目前來源：內建預設 Prompt' "></span>
+              </div>
               <textarea x-model="editingPlatformPrompt" rows="16"
                 class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-xs w-full font-mono"></textarea>
               <div class="flex gap-2 mt-2">

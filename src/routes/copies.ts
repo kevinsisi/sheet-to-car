@@ -8,6 +8,7 @@ import {
 } from '../services/copyGenerator';
 import { getKeyCount } from '../services/geminiKeys';
 import db from '../db/connection';
+import { getBuiltinPrompt } from '../prompts/promptLoader';
 
 const router = Router();
 
@@ -128,7 +129,21 @@ router.get('/team/members', (_req: Request, res: Response) => {
 router.get('/prompt/current', (_req: Request, res: Response) => {
   const row = db.prepare("SELECT value FROM settings WHERE key = 'system_prompt'").get() as any;
   const platformPrompts = getPlatformPrompts();
-  return res.json({ prompt: row?.value || '', platformPrompts });
+  const platformPromptMeta = Object.fromEntries(
+    Object.entries(platformPrompts).map(([platform, content]) => [
+      platform,
+      {
+        isCustomized: content !== getBuiltinPrompt(platform),
+        source: content !== getBuiltinPrompt(platform) ? 'user-override' : 'builtin',
+      },
+    ])
+  );
+  return res.json({
+    prompt: row?.value || '',
+    systemPromptEnabled: Boolean((row?.value || '').trim()),
+    platformPrompts,
+    platformPromptMeta,
+  });
 });
 
 // PUT /api/copies/prompt

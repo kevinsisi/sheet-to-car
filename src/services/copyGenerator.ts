@@ -47,6 +47,13 @@ interface ValidationMessage {
   type: 'error' | 'warning';
 }
 
+interface GenerationInputs {
+  member: TeamMember;
+  prefs: Record<string, string>;
+  vehicleContext: ReturnType<typeof getConfirmedVehicleContext>;
+  vinDecode: VinDecodeRecord | null;
+}
+
 function getTeamMembers(): TeamMember[] {
   return db.prepare('SELECT name, english_name, phone, line_id, line_url FROM team_members WHERE is_active = 1').all() as TeamMember[];
 }
@@ -462,12 +469,23 @@ function build8891DraftJson(car: CarRecord, member: TeamMember, vinDecode: VinDe
   return JSON.stringify(draft, null, 2);
 }
 
-async function buildPrompt(car: CarRecord, platform: Platform, member: TeamMember, prefs: Record<string, string>): Promise<string> {
+async function buildGenerationInputs(car: CarRecord): Promise<GenerationInputs> {
+  const member = findMemberByOwner(car.owner);
+  if (!member) throw new Error('No team member available');
+
+  return {
+    member,
+    prefs: getUserPreferences(),
+    vehicleContext: getConfirmedVehicleContext(car.item),
+    vinDecode: await getVinDecodeForCar(car, true),
+  };
+}
+
+function buildPrompt(car: CarRecord, platform: Platform, inputs: GenerationInputs): string {
   const customPrompt = getCustomPrompt();
-  const contactBlock = buildContactBlock(member);
+  const contactBlock = buildContactBlock(inputs.member);
   const skills = getPlatformSkills(platform);
-  const vehicleContext = getConfirmedVehicleContext(car.item);
-  const vinDecode = await getVinDecodeForCar(car, true);
+  const { prefs, vehicleContext, vinDecode } = inputs;
 
   let prompt = loadPlatformPrompt(platform);
 
@@ -524,7 +542,7 @@ async function buildPrompt(car: CarRecord, platform: Platform, member: TeamMembe
   prompt += buildVinDecodeBlock(vinDecode);
 
   if (platform === '8891') {
-    prompt += `\n\n## 8891 JSON Draft（已按 post-helper schema 預先組好，請保留整體結構，只補齊合理內容）\n${build8891DraftJson(car, member, vinDecode)}`;
+    prompt += `\n\n## 8891 JSON Draft（已按 post-helper schema 預先組好，請保留整體結構，只補齊合理內容）\n${build8891DraftJson(car, inputs.member, vinDecode)}`;
     prompt += `\n\n重要：
 - 請輸出與 draft 相同的 JSON 結構。
 - basic/specs/contact 的已知欄位優先沿用 draft。
@@ -540,13 +558,10 @@ async function buildPrompt(car: CarRecord, platform: Platform, member: TeamMembe
 
 /** Generate copy for a single platform */
 export async function generateCopyWithMeta(car: CarRecord, platform: Platform): Promise<GeneratedCopyResult> {
-  const member = findMemberByOwner(car.owner);
-  if (!member) throw new Error('No team member available');
-  const prefs = getUserPreferences();
+  const inputs = await buildGenerationInputs(car);
   const skills = getPlatformSkills(platform);
-  const vehicleContext = getConfirmedVehicleContext(car.item);
 
-  const prompt = await buildPrompt(car, platform, member, prefs);
+  const prompt = buildPrompt(car, platform, inputs);
 
   const rawResult = await withGeminiRetry(async (apiKey) => {
     const genai = new GoogleGenerativeAI(apiKey);
@@ -578,8 +593,8 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
   `).run(car.item, platform);
 
   const generationContext = {
-    confirmedFeatureCount: vehicleContext.confirmedHighlights.length + vehicleContext.confirmedPhotoFindings.length,
-    pendingFieldCount: vehicleContext.pendingReviewFields.length,
+    confirmedFeatureCount: inputs.vehicleContext.confirmedHighlights.length + inputs.vehicleContext.confirmedPhotoFindings.length,
+    pendingFieldCount: inputs.vehicleContext.pendingReviewFields.length,
   };
 
   // Save to DB
@@ -603,7 +618,7 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
   return {
     content: finalized.content,
     reviewHints: platform === '8891'
-      ? [...build8891ReviewHints(car, member, finalized.content), ...finalized.validationHints]
+      ? [...build8891ReviewHints(car, inputs.member, finalized.content), ...finalized.validationHints]
       : [],
     activeSkills: skills.map(skill => skill.name),
     generationContext,
@@ -620,17 +635,58 @@ export async function generateAllCopies(car: CarRecord): Promise<{
   results: Partial<Record<Platform, string>>;
   errors: Partial<Record<Platform, string>>;
 }> {
-  // Clear all existing drafts for this car before regenerating all
-  db.prepare(`
-    DELETE FROM car_copies 
-    WHERE item = ? AND status = 'draft'
-  `).run(car.item);
-
+  const inputs = await buildGenerationInputs(car);
   const results: Partial<Record<Platform, string>> = {};
   const errors: Partial<Record<Platform, string>> = {};
   for (const platform of PLATFORMS) {
     try {
-      results[platform] = await generateCopy(car, platform);
+      const prompt = buildPrompt(car, platform, inputs);
+      const rawResult = await withGeminiRetry(async (apiKey) => {
+        const genai = new GoogleGenerativeAI(apiKey);
+        const model = genai.getGenerativeModel({
+          model: getGeminiModel(),
+        });
+        const resp = await model.generateContent(prompt);
+        const text = resp.response.text();
+
+        if (resp.response.usageMetadata) {
+          trackUsage(apiKey, getGeminiModel(), 'copy-gen', resp.response.usageMetadata);
+        }
+
+        return text;
+      });
+
+      const finalized = platform === '8891'
+        ? finalize8891Content(rawResult)
+        : {
+            content: stripMarkdownCodeFence(rawResult),
+            validationHints: [] as CopyReviewHint[],
+            validationSummary: { status: 'ready' as const, errorCount: 0, warningCount: 0 },
+          };
+
+      db.prepare(`
+        DELETE FROM car_copies 
+        WHERE item = ? AND platform = ? AND status = 'draft'
+      `).run(car.item, platform);
+
+      db.prepare(`
+        INSERT INTO car_copies (
+          item, platform, content, status, confirmed_feature_count, pending_field_count,
+          validation_status, validation_error_count, validation_warning_count
+        )
+        VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?)
+      `).run(
+        car.item,
+        platform,
+        finalized.content,
+        inputs.vehicleContext.confirmedHighlights.length + inputs.vehicleContext.confirmedPhotoFindings.length,
+        inputs.vehicleContext.pendingReviewFields.length,
+        finalized.validationSummary.status,
+        finalized.validationSummary.errorCount,
+        finalized.validationSummary.warningCount,
+      );
+
+      results[platform] = finalized.content;
     } catch (err: any) {
       errors[platform] = err.message || '生成失敗';
     }

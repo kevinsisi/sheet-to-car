@@ -98,6 +98,23 @@ export function markKeyBad(key: string, reason: string = '429'): void {
   } catch {}
 }
 
+export function blockApiKey(key: string): void {
+  const suffix = key.slice(-4);
+  const blocked = loadBlockedSuffixes();
+  blocked.add(suffix);
+  badKeys.delete(key);
+
+  try {
+    db.prepare(
+      "INSERT INTO settings (key, value, updated_at) VALUES ('blocked_api_keys', ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')"
+    ).run([...blocked].join(','));
+    db.prepare('DELETE FROM api_key_cooldowns WHERE api_key_suffix = ?').run(suffix);
+  } catch {}
+
+  invalidateKeyCache();
+  console.warn(`[keys] Blocked permanently: ...${suffix}`);
+}
+
 function getAvailableKeys(): string[] {
   loadCooldownsFromDb();
   const now = Date.now();

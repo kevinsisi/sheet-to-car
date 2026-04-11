@@ -93,7 +93,9 @@ function app() {
     batchKeyText: '',
     settingsLoaded: false,
     systemPrompt: '',
+    systemPromptEnabled: false,
     platformPrompts: {},
+    platformPromptMeta: {},
     showPlatformPrompt: '',
     activePlatformTab: '',
     editingPlatformPrompt: '',
@@ -858,7 +860,9 @@ function app() {
         this.usageStats = await usageResp.json();
         const promptData = await promptResp.json();
         this.systemPrompt = promptData.prompt || '';
+        this.systemPromptEnabled = !!promptData.systemPromptEnabled;
         this.platformPrompts = promptData.platformPrompts || {};
+        this.platformPromptMeta = promptData.platformPromptMeta || {};
         this.userPrefs = await prefsResp.json();
         const teamData = await teamResp.json();
         this.teamMembers = teamData.members || [];
@@ -877,6 +881,7 @@ function app() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: this.systemPrompt }),
       });
+      this.systemPromptEnabled = !!String(this.systemPrompt || '').trim();
     },
 
     async selectPlatformTab(platform) {
@@ -886,6 +891,10 @@ function app() {
         const resp = await fetch(`/api/prompts/${encodeURIComponent(platform)}`);
         const data = await resp.json();
         this.editingPlatformPrompt = data.content || '';
+        this.platformPromptMeta[platform] = {
+          isCustomized: !!data.isCustomized,
+          source: data.source || 'builtin',
+        };
       } catch (err) {
         this.editingPlatformPrompt = this.platformPrompts[platform] || '';
       }
@@ -899,6 +908,10 @@ function app() {
         body: JSON.stringify({ content: this.editingPlatformPrompt }),
       });
       this.platformPrompts[this.activePlatformTab] = this.editingPlatformPrompt;
+      this.platformPromptMeta[this.activePlatformTab] = {
+        isCustomized: true,
+        source: 'user-override',
+      };
       this.platformPromptSavedMsg = '已儲存';
       this.platformPromptSaved = true;
       setTimeout(() => { this.platformPromptSaved = false; }, 3000);
@@ -912,6 +925,10 @@ function app() {
       const data = await resp.json();
       this.editingPlatformPrompt = data.content || '';
       this.platformPrompts[this.activePlatformTab] = data.content || '';
+      this.platformPromptMeta[this.activePlatformTab] = {
+        isCustomized: false,
+        source: 'builtin',
+      };
       this.platformPromptSavedMsg = '已重置為預設';
       this.platformPromptSaved = true;
       setTimeout(() => { this.platformPromptSaved = false; }, 3000);

@@ -5,7 +5,7 @@
  */
 
 import { withRetry, NoAvailableKeyError } from '@kevinsisi/ai-core';
-import { getGeminiApiKey, getGeminiApiKeyExcluding, markKeyBad } from './geminiKeys.js';
+import { blockApiKey, getGeminiApiKey, getGeminiApiKeyExcluding, markKeyBad } from './geminiKeys.js';
 
 interface RetryOptions {
   maxRetries?: number;
@@ -35,7 +35,12 @@ export async function withGeminiRetry<T>(
         if (info.errorClass === 'quota' || info.errorClass === 'rate-limit') {
           markKeyBad(currentKey, '429');
         } else if (info.errorClass === 'fatal') {
-          markKeyBad(currentKey, '403');
+          const message = String((info.error as { message?: string } | undefined)?.message || info.error || '');
+          if (shouldBlockKey(message)) {
+            blockApiKey(currentKey);
+          } else {
+            markKeyBad(currentKey, '403');
+          }
         }
         console.warn(`[geminiRetry] attempt ${info.attempt}/${info.maxRetries + 1}: ${info.errorClass}`);
       },
@@ -50,6 +55,16 @@ export async function withGeminiRetry<T>(
     }
     throw err;
   }
+}
+
+function shouldBlockKey(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes('consumer_suspended')
+    || normalized.includes('permission denied')
+    || normalized.includes('api_key_invalid')
+    || normalized.includes('api key not valid')
+    || normalized.includes('403')
+    || normalized.includes('401');
 }
 
 export async function withStreamRetry(

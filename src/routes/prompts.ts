@@ -20,7 +20,12 @@ router.get('/:platform', (req: Request, res: Response) => {
   const content = loadPlatformPrompt(platform);
   const builtin = getBuiltinPrompt(platform);
   const isCustomized = content !== builtin;
-  return res.json({ platform, content, isCustomized });
+  return res.json({
+    platform,
+    content,
+    isCustomized,
+    source: isCustomized ? 'user-override' : 'builtin',
+  });
 });
 
 // PUT /api/prompts/:platform
