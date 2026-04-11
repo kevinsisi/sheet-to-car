@@ -91,8 +91,7 @@ function buildContactBlock(member: TeamMember): string {
 ▪️一鍵加Line：${member.line_url}
 ▪️Line ID：${member.line_id}
 
-📍 遇見好車 CarsMeet
-📞 總機：02-2794-9910`;
+📍 遇見好車 CarsMeet`;
 }
 
 function buildSkillBlock(skills: LoadedSkill[]): string {
@@ -447,7 +446,6 @@ function build8891DraftJson(car: CarRecord, member: TeamMember, vinDecode: VinDe
     contact: {
       name: member.name,
       mobile: member.phone,
-      phone: '02-2794-9910',
       lineId: member.line_id,
       location: {
         city: '台北市',
@@ -508,7 +506,7 @@ function buildPrompt(car: CarRecord, platform: Platform, inputs: GenerationInput
     prompt += `\n\n## 使用者自訂規則\n${prefs.custom_rules}`;
   }
 
-  prompt += `\n\n## 業務聯絡（固定放在結尾）\n${contactBlock}`;
+  prompt += `\n\n## 可用聯絡資訊（是否使用、如何呈現，請遵循上方平台 Prompt 與額外指示）\n${contactBlock}`;
 
   prompt += `\n\n## 車輛資料
 - 編號: ${car.item}
