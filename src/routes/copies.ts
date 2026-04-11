@@ -81,9 +81,16 @@ router.post('/batch-generate', async (req: Request, res: Response) => {
       try {
         batchTask.current = `${car.item} ${car.brand} ${car.model}`;
         res.write(`data: ${JSON.stringify({ item: car.item, brand: car.brand, model: car.model, status: 'generating', done: batchTask.done, total: needGen.length })}\n\n`);
-        await generateAllCopies(car);
+        const generated = await generateAllCopies(car);
         batchTask.done++;
-        res.write(`data: ${JSON.stringify({ item: car.item, status: 'done', done: batchTask.done, total: needGen.length })}\n\n`);
+        const failedPlatforms = Object.keys(generated.errors);
+        if (failedPlatforms.length > 0) {
+          const error = `${car.item} 部分平台失敗: ${failedPlatforms.map(platform => `${platform}=${generated.errors[platform as keyof typeof generated.errors]}`).join(' | ')}`;
+          batchTask.errors.push(error);
+          res.write(`data: ${JSON.stringify({ item: car.item, status: 'partial_error', errors: generated.errors, done: batchTask.done, total: needGen.length })}\n\n`);
+        } else {
+          res.write(`data: ${JSON.stringify({ item: car.item, status: 'done', done: batchTask.done, total: needGen.length })}\n\n`);
+        }
       } catch (err: any) {
         batchTask.done++;
         batchTask.errors.push(`${car.item}: ${err.message}`);
@@ -91,7 +98,7 @@ router.post('/batch-generate', async (req: Request, res: Response) => {
       }
     }
 
-    res.write(`data: ${JSON.stringify({ phase: 'complete', done: batchTask.done, total: needGen.length, remaining: totalAvailable - batchTask.done })}\n\n`);
+    res.write(`data: ${JSON.stringify({ phase: 'complete', done: batchTask.done, total: needGen.length, remaining: totalAvailable - batchTask.done, errorCount: batchTask.errors.length })}\n\n`);
   } catch (err: any) {
     res.write(`data: ${JSON.stringify({ phase: 'error', error: err.message })}\n\n`);
   }

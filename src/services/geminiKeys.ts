@@ -34,12 +34,20 @@ function loadKeys(): string[] {
 
   const multi = db.prepare("SELECT value FROM settings WHERE key = 'gemini_api_keys'").get() as any;
   if (multi?.value) {
-    keys.push(...multi.value.split(',').map((k: string) => k.trim()).filter(Boolean));
+    keys.push(
+      ...multi.value
+        .split(',')
+        .map((k: string) => k.trim())
+        .filter((k: string) => k && isValidKeyFormat(k) && !blocked.has(k.slice(-4)))
+    );
   }
 
   const single = db.prepare("SELECT value FROM settings WHERE key = 'gemini_api_key'").get() as any;
   if (single?.value) {
-    keys.push(single.value.trim());
+    const key = single.value.trim();
+    if (key && isValidKeyFormat(key) && !blocked.has(key.slice(-4))) {
+      keys.push(key);
+    }
   }
 
   const seen = new Set<string>();

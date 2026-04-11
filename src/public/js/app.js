@@ -754,8 +754,10 @@ function app() {
                 this.batchProgress = { done: data.done, total: data.total, current: `${data.item} ${data.brand} ${data.model}` };
               } else if (data.status === 'done' || data.status === 'error') {
                 this.batchProgress = { done: data.done, total: data.total, current: this.batchProgress.current };
+              } else if (data.status === 'partial_error') {
+                this.batchProgress = { done: data.done, total: data.total, current: `${data.item} 部分平台失敗` };
               } else if (data.phase === 'complete') {
-                this.batchProgress = { done: data.done, total: data.total, current: '完成' };
+                this.batchProgress = { done: data.done, total: data.total, current: data.errorCount > 0 ? `完成 (${data.errorCount} 台異常)` : '完成' };
               }
             } catch {}
           }
