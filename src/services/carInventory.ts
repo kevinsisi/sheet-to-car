@@ -48,6 +48,7 @@ export async function syncCarsToDb(forceRefresh = false): Promise<number> {
     const existing = db.prepare('SELECT item FROM cars').all() as { item: string }[];
     for (const row of existing) {
       if (!validItems.has(row.item)) {
+        db.prepare('DELETE FROM owner_overrides WHERE item = ?').run(row.item);
         db.prepare('DELETE FROM cars WHERE item = ?').run(row.item);
       }
     }
@@ -61,6 +62,7 @@ export async function syncCarsToDb(forceRefresh = false): Promise<number> {
         poFacebook: records[i].poFacebook ? 1 : 0,
         poPostHelper: records[i].poPostHelper ? 1 : 0,
       });
+
     }
   });
   runSync(cars);
@@ -156,11 +158,11 @@ export function getCarsPaginated(params: PaginationParams): PaginatedResult {
   const offset = (page - 1) * pageSize;
 
   // Count total
-  const countSql = `SELECT COUNT(*) as total FROM cars c ${whereClause}`;
+  const countSql = `SELECT COUNT(*) as total FROM cars c LEFT JOIN owner_overrides oo ON oo.item = c.item ${whereClause}`;
   const { total } = db.prepare(countSql).get(...bindings) as any;
 
   // Fetch page
-  const dataSql = `SELECT c.* FROM cars c ${whereClause} ORDER BY c.${sortCol} ${sortDir} LIMIT ? OFFSET ?`;
+  const dataSql = `SELECT c.*, COALESCE(oo.owner, c.owner, '') AS effective_owner, CASE WHEN oo.item IS NOT NULL THEN 1 ELSE 0 END AS owner_overridden FROM cars c LEFT JOIN owner_overrides oo ON oo.item = c.item ${whereClause} ORDER BY c.${sortCol} ${sortDir} LIMIT ? OFFSET ?`;
   const rows = db.prepare(dataSql).all(...bindings, pageSize, offset) as any[];
 
   const cars: CarRecord[] = rows.map(row => ({
@@ -182,11 +184,12 @@ export function getCarsPaginated(params: PaginationParams): PaginatedResult {
     poOfficial: !!row.po_official,
     po8891: !!row.po_8891,
     poFacebook: !!row.po_facebook,
-    poPostHelper: !!row.po_post_helper,
-    owner: row.owner,
-    price: row.price,
-    bgColor: row.bg_color,
-  }));
+      poPostHelper: !!row.po_post_helper,
+      owner: row.effective_owner,
+      ownerOverridden: !!row.owner_overridden,
+      price: row.price,
+      bgColor: row.bg_color,
+    }));
 
   return {
     cars,
@@ -258,6 +261,26 @@ export async function setPoPlatform(item: string, platform: string, value: boole
     }
   }
   return success;
+}
+
+export function setOwnerOverride(item: string, owner: string): boolean {
+  const exists = db.prepare('SELECT 1 FROM cars WHERE item = ?').get(item) as any;
+  if (!exists) return false;
+
+  const trimmedOwner = String(owner || '').trim();
+  if (!trimmedOwner) return false;
+
+  db.prepare(`
+    INSERT INTO owner_overrides (item, owner, updated_at) VALUES (?, ?, datetime('now'))
+    ON CONFLICT(item) DO UPDATE SET owner = excluded.owner, updated_at = datetime('now')
+  `).run(item, trimmedOwner);
+
+  return true;
+}
+
+export function clearOwnerOverride(item: string): boolean {
+  const result = db.prepare('DELETE FROM owner_overrides WHERE item = ?').run(item);
+  return result.changes > 0;
 }
 
 /** Force sync from sheet */

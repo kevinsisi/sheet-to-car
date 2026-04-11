@@ -329,6 +329,32 @@
                         </div>
                       </div>
                     </template>
+                    <div x-show="ownerActionItem === car.item" class="mb-4 bg-rose-50 dark:bg-rose-900/20 rounded-lg border border-rose-200 dark:border-rose-800 px-4 py-3 text-sm">
+                      <div class="font-medium text-rose-800 dark:text-rose-300">無法判定正確業務聯絡人</div>
+                      <div class="text-xs text-rose-700 dark:text-rose-400 mt-1" x-text="ownerActionError"></div>
+                      <div class="text-xs text-gray-600 dark:text-gray-300 mt-2">建議先重新同步資料；若同步後 owner 仍空白或無法匹配，再手動指定。</div>
+                      <div class="mt-3 flex flex-wrap gap-2 items-center">
+                        <button @click.stop="syncOwnerAndRetry(car.item)" :disabled="syncing"
+                          class="bg-rose-600 text-white px-3 py-1 rounded text-xs hover:bg-rose-700 disabled:opacity-50">
+                          <span x-show="!syncing">先重新同步</span>
+                          <span x-show="syncing">同步中...</span>
+                        </button>
+                        <select x-model="ownerManualSelection" class="border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1 text-xs min-w-40">
+                          <option value="">手動選擇 owner</option>
+                          <template x-for="member in teamMembers" :key="member.english_name">
+                            <option :value="member.english_name" x-text="member.english_name + ' / ' + member.name"></option>
+                          </template>
+                        </select>
+                        <button @click.stop="saveOwnerOverride(car.item)"
+                          class="bg-gray-800 text-white px-3 py-1 rounded text-xs hover:bg-gray-900 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white">
+                          指定後重試
+                        </button>
+                        <button x-show="car.ownerOverridden" @click.stop="clearOwnerOverride(car.item)" class="text-xs px-3 py-1 rounded border border-amber-500 text-amber-700 dark:text-amber-300">
+                          改回同步 owner
+                        </button>
+                        <button @click.stop="closeOwnerResolution()" class="text-xs px-3 py-1 rounded border dark:border-gray-600">取消</button>
+                      </div>
+                    </div>
                     <div x-show="lastGenerationInfo && expandedItem === car.item" class="mb-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800 px-4 py-3 text-sm">
                       <div class="font-medium text-emerald-800 dark:text-emerald-300">
                         <span x-text="lastGenerationInfo.platform"></span>

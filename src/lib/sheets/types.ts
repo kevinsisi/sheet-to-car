@@ -19,6 +19,7 @@ export interface CarRecord {
   poFacebook: boolean;
   poPostHelper: boolean;
   owner: string;
+  ownerOverridden?: boolean;
   price: string;
   bgColor: string;
 }

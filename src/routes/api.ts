@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { getCarsPaginated, syncCarsToDb, getNewCars, getStats, setPoStatus, setPoPlatform, syncFromSheet, getAllCars } from '../services/carInventory';
+import { clearOwnerOverride, getCarsPaginated, syncCarsToDb, getNewCars, getStats, setOwnerOverride, setPoStatus, setPoPlatform, syncFromSheet, getAllCars } from '../services/carInventory';
+import db from '../db/connection';
 
 const router = Router();
 
@@ -84,6 +85,41 @@ router.post('/cars/:item/po', async (req: Request, res: Response) => {
     if (!success) return res.status(404).json({ error: `Car "${item}" not found in sheet` });
 
     return res.json({ success: true, item, poStatus });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/cars/:item/owner — set local owner override
+router.patch('/cars/:item/owner', async (req: Request, res: Response) => {
+  try {
+    const { item } = req.params;
+    const owner = String(req.body?.owner || '').trim();
+    if (!owner) {
+      return res.status(400).json({ error: 'owner is required' });
+    }
+
+    const validOwner = db.prepare('SELECT 1 FROM team_members WHERE is_active = 1 AND english_name = ?').get(owner) as any;
+    if (!validOwner) {
+      return res.status(400).json({ error: 'owner must be an active team member english_name' });
+    }
+
+    const success = setOwnerOverride(item, owner);
+    if (!success) return res.status(404).json({ error: `Car "${item}" not found` });
+
+    return res.json({ success: true, item, owner });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/cars/:item/owner — clear local owner override
+router.delete('/cars/:item/owner', async (req: Request, res: Response) => {
+  try {
+    const { item } = req.params;
+    const success = clearOwnerOverride(item);
+    if (!success) return res.status(404).json({ error: `No owner override found for car "${item}"` });
+    return res.json({ success: true, item });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

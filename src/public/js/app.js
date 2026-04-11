@@ -103,6 +103,10 @@ function app() {
     platformPromptSavedMsg: '',
     userPrefs: {},
     teamMembers: [],
+    ownerActionItem: '',
+    ownerActionError: '',
+    ownerActionRetryTarget: null,
+    ownerManualSelection: '',
 
     async init() {
       this.applyDark();
@@ -326,6 +330,132 @@ function app() {
         alert('同步失敗: ' + err.message);
       }
       this.syncing = false;
+    },
+
+    async ensureTeamMembersLoaded() {
+      if (this.teamMembers.length > 0) return;
+      try {
+        const resp = await fetch('/api/copies/team/members');
+        const data = await resp.json();
+        this.teamMembers = data.members || [];
+      } catch {}
+    },
+
+    normalizeOwnerToken(value) {
+      return String(value || '')
+        .replace(/^訂車/, '')
+        .replace(/[()（）]/g, '')
+        .replace(/[\s\-_/]+/g, '')
+        .trim();
+    },
+
+    tokenizeOwnerIdentifiers(value) {
+      const raw = String(value || '').trim();
+      if (!raw) return [];
+      const segments = raw
+        .replace(/[()（）]/g, ' ')
+        .split(/[\s,，/|]+/)
+        .map(segment => this.normalizeOwnerToken(segment))
+        .filter(Boolean);
+      const normalizedWhole = this.normalizeOwnerToken(raw);
+      if (normalizedWhole) segments.push(normalizedWhole);
+      return [...new Set(segments)];
+    },
+
+    canResolveOwner(owner) {
+      const ownerTokens = this.tokenizeOwnerIdentifiers(owner);
+      if (ownerTokens.length === 0) return false;
+
+      const matches = this.teamMembers.filter(member => {
+        const memberTokens = new Set([
+          this.normalizeOwnerToken(member.english_name),
+          this.normalizeOwnerToken(member.name),
+          ...String(member.aliases || '').split(',').map(token => this.normalizeOwnerToken(token)).filter(Boolean),
+        ].filter(Boolean));
+        return ownerTokens.some(token => memberTokens.has(token));
+      });
+
+      return matches.length === 1;
+    },
+
+    openOwnerResolution(item, errorMessage, retryTarget = { mode: 'all', platform: null }) {
+      this.ownerActionItem = item;
+      this.ownerActionError = errorMessage || '目前無法判定正確業務聯絡人';
+      this.ownerActionRetryTarget = retryTarget;
+      this.ownerManualSelection = '';
+      void this.ensureTeamMembersLoaded();
+    },
+
+    closeOwnerResolution() {
+      this.ownerActionItem = '';
+      this.ownerActionError = '';
+      this.ownerActionRetryTarget = null;
+      this.ownerManualSelection = '';
+    },
+
+    async syncOwnerAndRetry(item) {
+      await this.syncSheet();
+      await this.ensureTeamMembersLoaded();
+      const car = this.cars.find(c => c.item === item);
+      if (!car || !car.owner || !this.canResolveOwner(car.owner)) {
+        this.ownerActionError = '重新同步後 owner 仍空白或無法唯一匹配，請手動選擇正確業務。';
+        return;
+      }
+
+      const retryTarget = this.ownerActionRetryTarget;
+      this.closeOwnerResolution();
+      if (retryTarget?.mode === 'single' && retryTarget.platform) {
+        await this.generateOne(item, retryTarget.platform);
+      } else {
+        await this.generateAll(item);
+      }
+    },
+
+    async saveOwnerOverride(item) {
+      if (!this.ownerManualSelection) {
+        this.copyToast = '請先選擇 owner';
+        return;
+      }
+      try {
+        const resp = await fetch(`/api/cars/${item}/owner`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ owner: this.ownerManualSelection }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          this.copyToast = data.error || 'owner 更新失敗';
+          return;
+        }
+
+        await this.loadCars(true);
+        this.copyToast = `已指定 ${item} owner 為 ${this.ownerManualSelection}`;
+        const retryTarget = this.ownerActionRetryTarget;
+        this.closeOwnerResolution();
+        if (retryTarget?.mode === 'single' && retryTarget.platform) {
+          await this.generateOne(item, retryTarget.platform);
+        } else {
+          await this.generateAll(item);
+        }
+      } catch (err) {
+        this.copyToast = 'owner 更新失敗: ' + err.message;
+      }
+    },
+
+    async clearOwnerOverride(item) {
+      try {
+        const resp = await fetch(`/api/cars/${item}/owner`, { method: 'DELETE' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          this.copyToast = data.error || '清除 owner 指定失敗';
+          return;
+        }
+        await this.loadCars(true);
+        this.copyToast = `已改回使用 ${item} 的同步 owner`;
+        this.closeOwnerResolution();
+      } catch (err) {
+        this.copyToast = '清除 owner 指定失敗: ' + err.message;
+      }
     },
 
     async updatePo(item, poStatus) {
@@ -591,6 +721,9 @@ function app() {
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
           await Promise.all([this.loadCopies(item), this.loadCopySummary(), this.load8891ValidationBlockers()]);
+          if ((err.error || '').includes('No matched team member')) {
+            this.openOwnerResolution(item, err.error, { mode: 'all', platform: null });
+          }
           this.finishGeneration(item, '全部', err.error || '全部文案生成失敗');
           return;
         }
@@ -622,6 +755,9 @@ function app() {
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
           await Promise.all([this.loadCopies(item), this.loadCopySummary(), this.load8891ValidationBlockers()]);
+          if ((err.error || '').includes('No matched team member')) {
+            this.openOwnerResolution(item, err.error, { mode: 'single', platform });
+          }
           this.finishGeneration(item, platform, err.error || `${platform} 文案生成失敗`);
           return;
         }
