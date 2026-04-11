@@ -216,10 +216,16 @@ export async function executeTool(name: string, args: any): Promise<string> {
         }
         return reply;
       } else {
-        const results = await generateAllCopies(car);
+        const generated = await generateAllCopies(car);
         let reply = '已生成全部平台文案：\n';
-        for (const [p, c] of Object.entries(results)) {
-          reply += `\n【${p}】\n${c}\n`;
+        for (const [platform, content] of Object.entries(generated.results)) {
+          reply += `\n【${platform}】\n${content}\n`;
+        }
+        if (Object.keys(generated.errors).length > 0) {
+          reply += '\n【失敗平台】\n';
+          for (const [platform, error] of Object.entries(generated.errors)) {
+            reply += `- ${platform}: ${error}\n`;
+          }
         }
         return reply;
       }

@@ -31,21 +31,160 @@ interface DirectGenerateIntent {
   platform?: string;
 }
 
+const SUPPORTED_PLATFORM_ALIASES = ['官網', 'website', 'facebook', 'fb', '8891', 'json', '全平台', '全部文案', '全部平台', 'all platform', 'all copy'];
+
+function extractItemCode(text: string): string | null {
+  const itemMatch = String(text || '').match(/\b([A-Za-z]{0,2}\d{1,4})\b/);
+  return itemMatch ? itemMatch[1] : null;
+}
+
+function detectPlatform(text: string): string | undefined {
+  const raw = String(text || '');
+  const lower = raw.toLowerCase();
+
+  if (raw.includes('全平台') || raw.includes('全部文案') || raw.includes('全部平台') || lower.includes('all platform') || lower.includes('all copy')) {
+    return undefined;
+  }
+  if (raw.includes('官網') || lower.includes('website') || lower.includes('web copy')) return '官網';
+  if (raw.includes('Facebook') || raw.includes('facebook') || raw.includes('FB') || lower.includes('fb')) return 'Facebook';
+  if (raw.includes('8891') || lower.includes('json')) return '8891';
+  return undefined;
+}
+
+function countMentionedPlatforms(text: string): number {
+  const raw = String(text || '');
+  const lower = raw.toLowerCase();
+  let count = 0;
+  if (raw.includes('官網') || lower.includes('website') || lower.includes('web copy')) count += 1;
+  if (raw.includes('Facebook') || raw.includes('facebook') || raw.includes('FB') || lower.includes('fb')) count += 1;
+  if (raw.includes('8891') || lower.includes('json')) count += 1;
+  return count;
+}
+
+function mentionsUnsupportedPlatform(text: string): boolean {
+  const raw = String(text || '').trim();
+  const lower = raw.toLowerCase();
+  const mentionsPlatformWord = /文案|copy|平台|platform|json|官網|facebook|fb|8891|instagram|ig/.test(raw + lower);
+  if (!mentionsPlatformWord) return false;
+  return ['instagram', 'ig', 'threads', 'line', 'tiktok'].some(token => lower.includes(token));
+}
+
+function hasOneOffGenerationConstraints(text: string): boolean {
+  return ['語氣', '不要', '改成', '風格', '強調', '避免', '成熟', '活潑', '別提', '加上', 'tone', 'style', 'avoid', 'mention'].some(token => String(text || '').includes(token) || String(text || '').toLowerCase().includes(token));
+}
+
+function isGenerateRequest(text: string): boolean {
+  const raw = String(text || '');
+  const lower = raw.toLowerCase();
+  return ['生成', '產生', '出文案', '產出', 'generate', 'create'].some(token => raw.includes(token) || lower.includes(token));
+}
+
+function isAffirmativeFollowup(text: string): boolean {
+  const normalized = String(text || '').trim().toLowerCase();
+  return ['好', '可以', '確認', '是', 'yes', 'ok', 'okay', 'generate it now', '直接生成', '直接產生'].includes(normalized);
+}
+
 function parseDirectGenerateIntent(userMessage: string): DirectGenerateIntent | null {
   const text = String(userMessage || '').trim();
-  if (!text.includes('生成')) return null;
+  if (!isGenerateRequest(text)) return null;
+  if (/[?？嗎]$/.test(text) || text.includes('能不能') || text.includes('可以直接生成')) return null;
+  if (mentionsUnsupportedPlatform(text)) return null;
+  if (hasOneOffGenerationConstraints(text)) return null;
 
-  const itemMatch = text.match(/\b([A-Za-z]{0,2}\d{1,4})\b/);
-  if (!itemMatch) return null;
+  const item = extractItemCode(text);
+  if (!item) return null;
 
-  let platform: string | undefined;
-  if (text.includes('官網')) platform = '官網';
-  else if (text.includes('Facebook') || text.includes('facebook') || text.includes('FB')) platform = 'Facebook';
-  else if (text.includes('8891')) platform = '8891';
+  const lower = text.toLowerCase();
+  const referencesSupportedPlatform = SUPPORTED_PLATFORM_ALIASES.some(token => text.includes(token) || lower.includes(token));
+  if (!referencesSupportedPlatform) return null;
+  if (countMentionedPlatforms(text) > 1 && !(text.includes('全平台') || text.includes('全部文案') || text.includes('全部平台') || lower.includes('all platform') || lower.includes('all copy'))) {
+    return null;
+  }
 
   return {
-    item: itemMatch[1],
-    platform,
+    item,
+    platform: detectPlatform(text),
+  };
+}
+
+function parseOwnerCheckIntent(userMessage: string): { item: string } | null {
+  const text = String(userMessage || '').trim();
+  const lower = text.toLowerCase();
+  const looksLikeOwnerCheck = [
+    'owner 怎麼處理',
+    'owner 狀態',
+    '檢查 owner',
+    'resolve owner',
+    '負責人怎麼處理',
+    '車主怎麼處理',
+  ].some(token => text.includes(token) || lower.includes(token));
+  if (!looksLikeOwnerCheck) return null;
+  const item = extractItemCode(text);
+  return item ? { item } : null;
+}
+
+function parseReadinessIntent(userMessage: string): { item: string } | null {
+  const text = String(userMessage || '').trim();
+  const lower = text.toLowerCase();
+  if (isGenerateRequest(text) && detectPlatform(text)) return null;
+  const looksLikeReadiness = ['適合生成', '能不能生成', '可以直接生成', '阻擋因素', '生成前', 'readiness check', 'ready to generate'].some(token => text.includes(token) || lower.includes(token));
+  if (!looksLikeReadiness) return null;
+  const item = extractItemCode(text);
+  return item ? { item } : null;
+}
+
+function extractTextParts(message: ChatMessage | undefined): string {
+  if (!message) return '';
+  return message.parts.map(part => ('text' in part && typeof part.text === 'string' ? part.text : '')).join(' ').trim();
+}
+
+async function completeRoutedResponse(
+  sessionId: string,
+  run: () => Promise<string>,
+  onChunk: (text: string) => void,
+  onDone: () => void,
+  onError: (err: Error) => void,
+): Promise<boolean> {
+  try {
+    const toolResult = await run();
+    saveMessage(sessionId, 'assistant', toolResult);
+    onChunk(toolResult);
+    onDone();
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    saveMessage(sessionId, 'assistant', `Error: ${message}`);
+    onError(err instanceof Error ? err : new Error(message));
+    return true;
+  }
+}
+
+function parseFollowupGenerateIntent(history: ChatMessage[], userMessage: string): DirectGenerateIntent | null {
+  if (!isAffirmativeFollowup(userMessage)) return null;
+
+  const previousMessages = history.slice(0, -1);
+  const lastUser = [...previousMessages].reverse().find(msg => msg.role === 'user');
+  const lastAssistant = [...previousMessages].reverse().find(msg => msg.role === 'model');
+  const lastUserText = extractTextParts(lastUser);
+  const lastAssistantText = extractTextParts(lastAssistant);
+  const assistantAskedToGenerate = [
+    '是否直接生成',
+    '是否要直接生成',
+    '是否要繼續生成',
+    '是否要生成',
+    '您確定要現在生成',
+    'please confirm generation',
+  ].some(token => lastAssistantText.includes(token) || lastAssistantText.toLowerCase().includes(token));
+
+  if (!lastUserText || !/生成|產生|generate|create/i.test(lastUserText)) return null;
+  if (!assistantAskedToGenerate) return null;
+
+  const item = extractItemCode(lastUserText);
+  if (!item) return null;
+
+  return {
+    item,
+    platform: detectPlatform(lastUserText),
   };
 }
 
@@ -81,16 +220,32 @@ export async function processChat(
 ): Promise<void> {
   saveMessage(sessionId, 'user', userMessage);
 
-  const directGenerate = parseDirectGenerateIntent(userMessage);
-  if (directGenerate) {
-    const toolResult = await executeTool('generate_copy', directGenerate);
-    saveMessage(sessionId, 'assistant', toolResult);
-    onChunk(toolResult);
-    onDone();
+  const history = loadHistory(sessionId);
+
+  const ownerCheck = parseOwnerCheckIntent(userMessage);
+  if (ownerCheck) {
+    await completeRoutedResponse(sessionId, () => executeTool('resolve_owner', { item: ownerCheck.item, action: 'check' }), onChunk, onDone, onError);
     return;
   }
 
-  const history = loadHistory(sessionId);
+  const readinessCheck = parseReadinessIntent(userMessage);
+  if (readinessCheck) {
+    await completeRoutedResponse(sessionId, () => executeTool('get_generation_readiness', { item: readinessCheck.item }), onChunk, onDone, onError);
+    return;
+  }
+
+  const directGenerate = parseDirectGenerateIntent(userMessage);
+  if (directGenerate) {
+    await completeRoutedResponse(sessionId, () => executeTool('generate_copy', directGenerate), onChunk, onDone, onError);
+    return;
+  }
+
+  const followupGenerate = parseFollowupGenerateIntent(history, userMessage);
+  if (followupGenerate) {
+    await completeRoutedResponse(sessionId, () => executeTool('generate_copy', followupGenerate), onChunk, onDone, onError);
+    return;
+  }
+
   // Remove the last message (the one we just saved) since we'll send it as the current message
   const pastHistory = history.slice(0, -1);
 
