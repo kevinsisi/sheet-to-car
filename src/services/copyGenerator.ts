@@ -60,10 +60,11 @@ function getTeamMembers(): TeamMember[] {
 
 function findMemberByOwner(owner: string): TeamMember | null {
   const members = getTeamMembers();
-  if (!owner) return members[0] || null;
+  const normalizedOwner = normalizeOwner(owner);
+  if (!normalizedOwner) return null;
   return members.find(m =>
-    isOwnerMatched(owner, m)
-  ) || members[0] || null;
+    isOwnerMatched(normalizedOwner, m)
+  ) || null;
 }
 
 function isOwnerMatched(owner: string, member: TeamMember): boolean {
@@ -71,6 +72,25 @@ function isOwnerMatched(owner: string, member: TeamMember): boolean {
     || member.name.includes(owner)
     || owner.includes(member.english_name)
     || owner.includes(member.name);
+}
+
+function normalizeOwner(owner: string): string {
+  const raw = String(owner || '').trim();
+  if (!raw) return '';
+
+  const aliasMap: Record<string, string> = {
+    '信翰': 'Hank',
+    '訂車信': 'Hank',
+    '訂車謝': 'James',
+    '訂車郭': '小郭',
+  };
+
+  if (aliasMap[raw]) return aliasMap[raw];
+  if (raw.startsWith('訂車')) {
+    return raw.replace(/^訂車/, '').trim();
+  }
+
+  return raw;
 }
 
 function getUserPreferences(): Record<string, string> {
@@ -301,7 +321,8 @@ function build8891ReviewHints(car: CarRecord, member: TeamMember, content: strin
     });
   }
 
-  if (!car.owner || !member || !isOwnerMatched(car.owner, member)) {
+  const normalizedOwner = normalizeOwner(car.owner);
+  if (!normalizedOwner || !member || !isOwnerMatched(normalizedOwner, member)) {
     hints.push({
       field: 'contact',
       reason: '業務聯絡人是依 owner 模糊比對取得，建議人工確認。',
@@ -329,6 +350,45 @@ function buildVinDecodeBlock(vinDecode: VinDecodeRecord | null): string {
 - 車身型式: ${vinDecode.bodyClass || '未提供'}
 - 門數: ${vinDecode.doors || '未提供'}
 - 變速箱: ${vinDecode.transmissionStyle || '未提供'}`;
+}
+
+function normalizeBrandForComparison(value: string): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/benz/g, 'mercedes')
+    .replace(/rolls[-\s]*royce/g, 'rollsroyce')
+    .replace(/^rr$/g, 'rollsroyce')
+    .replace(/[^a-z]/g, '');
+}
+
+function normalizeModelForComparison(value: string): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function isVinDecodeTrusted(car: CarRecord, vinDecode: VinDecodeRecord | null): boolean {
+  if (!vinDecode) return false;
+
+  const carYear = parseFirstInteger(car.year || '');
+  const vinYear = parseFirstInteger(vinDecode.year || '');
+  if (!carYear || !vinYear || Math.abs(carYear - vinYear) > 1) {
+    return false;
+  }
+
+  const carBrand = normalizeBrandForComparison(car.brand || '');
+  const vinBrand = normalizeBrandForComparison(vinDecode.make || '');
+  if (!carBrand || !vinBrand || (!carBrand.includes(vinBrand) && !vinBrand.includes(carBrand))) {
+    return false;
+  }
+
+  const carModel = normalizeModelForComparison(car.model || '');
+  const vinModel = normalizeModelForComparison(vinDecode.model || '');
+  if (!carModel || !vinModel || (!carModel.includes(vinModel) && !vinModel.includes(carModel))) {
+    return false;
+  }
+
+  return true;
 }
 
 function parseFirstInteger(input: string): number | undefined {
@@ -469,13 +529,16 @@ function build8891DraftJson(car: CarRecord, member: TeamMember, vinDecode: VinDe
 
 async function buildGenerationInputs(car: CarRecord): Promise<GenerationInputs> {
   const member = findMemberByOwner(car.owner);
-  if (!member) throw new Error('No team member available');
+  if (!member) throw new Error(`No matched team member for owner '${car.owner || '(empty)'}'`);
+
+  const rawVinDecode = await getVinDecodeForCar(car, true);
+  const vinDecode = isVinDecodeTrusted(car, rawVinDecode) ? rawVinDecode : null;
 
   return {
     member,
     prefs: getUserPreferences(),
     vehicleContext: getConfirmedVehicleContext(car.item),
-    vinDecode: await getVinDecodeForCar(car, true),
+    vinDecode,
   };
 }
 
