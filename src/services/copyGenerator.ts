@@ -459,14 +459,15 @@ function normalizeFuelType(value?: string): 'gasoline' | 'diesel' | 'hybrid' | '
 
 function normalizeBodyType(value?: string, model = ''): 'sedan' | 'suv' | 'hatchback' | 'coupe' | 'convertible' | 'wagon' | 'van' | 'truck' | 'mpv' | undefined {
   const text = `${value || ''} ${model}`.toLowerCase();
+  const hasLmModel = /(?:^|\s|[-_/])(lm\d*[a-z]?)(?:$|\s|[-_/])/.test(text);
   if (!text) return undefined;
   if (text.includes('convertible') || text.includes('spyder') || text.includes('spider') || text.includes('cabrio') || text.includes('敞篷')) return 'convertible';
+  if (text.includes('mpv') || hasLmModel || text.includes('alphard') || text.includes('vellfire') || text.includes('odyssey') || text.includes('serena') || text.includes('sienna') || text.includes('carnival') || text.includes('v-class') || text.includes('v class') || text.includes('staria')) return 'mpv';
   if (text.includes('suv') || text.includes('cullinan') || text.includes('urus') || text.includes('cayenne')) return 'suv';
   if (text.includes('wagon') || text.includes('estate') || text.includes('旅行')) return 'wagon';
   if (text.includes('hatchback')) return 'hatchback';
   if (text.includes('van')) return 'van';
   if (text.includes('truck')) return 'truck';
-  if (text.includes('mpv')) return 'mpv';
   if (text.includes('coupe') || text.includes('gt') || text.includes('911') || text.includes('roma') || text.includes('f8')) return 'coupe';
   if (text.includes('sedan') || text.includes('ghost') || text.includes('flying spur') || text.includes('s-class')) return 'sedan';
   return undefined;
