@@ -125,8 +125,8 @@ function isGenerateRequest(text: string): boolean {
     return true;
   }
 
-  // Support short command forms like "B165 直接出 FB 文案" without broadening to arbitrary "出..." text.
-  return /(?:^|\s)出\s*(?:fb|facebook|官網|website|web copy|8891|json|全部文案|全部平台|全平台|all platform|all copy|文案)/i.test(raw);
+  // Support short command forms like "B165 直接出 FB 文案" while avoiding broader verbs such as 列出/輸出/帶出.
+  return /(?:^|\s|直接)出\s*(?:fb|facebook|官網|website|web copy|8891|json|全部文案|全部平台|全平台|all platform|all copy|文案)/i.test(raw);
 }
 
 function isAffirmativeFollowup(text: string): boolean {
