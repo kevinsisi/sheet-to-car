@@ -162,6 +162,35 @@ function stripMarkdownCodeFence(content: string): string {
   return fenceMatch ? fenceMatch[1].trim() : trimmed;
 }
 
+function normalizeFreeText(input: string): string {
+  return String(input || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function mergePhotoSuggestedLines(platform: Platform, content: string, vehicleContext: GenerationInputs['vehicleContext']): string {
+  const lines = vehicleContext.photoSuggestedLines.filter(Boolean);
+  if (lines.length === 0 || vehicleContext.photoReviewPending) return content;
+
+  const normalizedContent = normalizeFreeText(content);
+  const missingLines = lines.filter(line => !normalizedContent.includes(normalizeFreeText(line)));
+  if (missingLines.length === 0) return content;
+
+  const firstLine = missingLines[0].trim();
+  if (!firstLine) return content;
+
+  if (platform === '8891') {
+    const parsed = parseGeneratedJson(content);
+    if (!parsed || typeof parsed !== 'object') return content;
+    if (!parsed.listing || typeof parsed.listing !== 'object' || Array.isArray(parsed.listing)) {
+      parsed.listing = {};
+    }
+    const existing = String(parsed.listing.description || '').trim();
+    parsed.listing.description = existing ? `${existing}\n${firstLine}` : firstLine;
+    return JSON.stringify(parsed, null, 2);
+  }
+
+  return `${content}\n\n照片補充觀察：${firstLine}`;
+}
+
 function normalize8891Json(data: any): any {
   if (!data || typeof data !== 'object') return data;
 
@@ -760,10 +789,14 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
   const finalized = platform === '8891'
     ? finalize8891Content(rawResult, car)
     : {
-        content: stripMarkdownCodeFence(rawResult),
+        content: mergePhotoSuggestedLines(platform, stripMarkdownCodeFence(rawResult), inputs.vehicleContext),
         validationHints: [] as CopyReviewHint[],
         validationSummary: { status: 'ready' as const, errorCount: 0, warningCount: 0 },
       };
+
+  if (platform === '8891') {
+    finalized.content = mergePhotoSuggestedLines(platform, finalized.content, inputs.vehicleContext);
+  }
 
   // Remove existing draft to prevent duplicates
   db.prepare(`
@@ -838,10 +871,14 @@ export async function generateAllCopies(car: CarRecord): Promise<{
       const finalized = platform === '8891'
         ? finalize8891Content(rawResult, car)
         : {
-            content: stripMarkdownCodeFence(rawResult),
+            content: mergePhotoSuggestedLines(platform, stripMarkdownCodeFence(rawResult), inputs.vehicleContext),
             validationHints: [] as CopyReviewHint[],
             validationSummary: { status: 'ready' as const, errorCount: 0, warningCount: 0 },
           };
+
+      if (platform === '8891') {
+        finalized.content = mergePhotoSuggestedLines(platform, finalized.content, inputs.vehicleContext);
+      }
 
       db.prepare(`
         DELETE FROM car_copies 

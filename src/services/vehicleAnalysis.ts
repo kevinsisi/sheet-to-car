@@ -42,6 +42,7 @@ export interface ConfirmedVehicleContext {
   confirmedPhotoFindings: string[];
   photoVisibleFindings: string[];
   photoSuggestedLines: string[];
+  photoReviewPending: boolean;
   pendingReviewFields: string[];
 }
 
@@ -402,6 +403,7 @@ export function getConfirmedVehicleContext(item: string): ConfirmedVehicleContex
     confirmedPhotoFindings: photo,
     photoVisibleFindings: Array.from(new Set(photoAnalysis?.findings || [])),
     photoSuggestedLines: Array.from(new Set(photoAnalysis?.suggestedCopyLines || [])),
+    photoReviewPending: (photoAnalysis?.reviewHints || []).length > 0,
     pendingReviewFields: Array.from(new Set([
       ...(baseAnalysis?.reviewHints || []).map(hint => hint.field),
       ...(photoAnalysis?.reviewHints || []).map(hint => hint.field),
