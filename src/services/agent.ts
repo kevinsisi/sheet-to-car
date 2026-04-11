@@ -26,6 +26,29 @@ interface ChatMessage {
   parts: Part[];
 }
 
+interface DirectGenerateIntent {
+  item: string;
+  platform?: string;
+}
+
+function parseDirectGenerateIntent(userMessage: string): DirectGenerateIntent | null {
+  const text = String(userMessage || '').trim();
+  if (!text.includes('生成')) return null;
+
+  const itemMatch = text.match(/\b([A-Za-z]{0,2}\d{1,4})\b/);
+  if (!itemMatch) return null;
+
+  let platform: string | undefined;
+  if (text.includes('官網')) platform = '官網';
+  else if (text.includes('Facebook') || text.includes('facebook') || text.includes('FB')) platform = 'Facebook';
+  else if (text.includes('8891')) platform = '8891';
+
+  return {
+    item: itemMatch[1],
+    platform,
+  };
+}
+
 /** Load chat history for a session */
 function loadHistory(sessionId: string): ChatMessage[] {
   const rows = db.prepare(
@@ -57,6 +80,15 @@ export async function processChat(
   onError: (err: Error) => void
 ): Promise<void> {
   saveMessage(sessionId, 'user', userMessage);
+
+  const directGenerate = parseDirectGenerateIntent(userMessage);
+  if (directGenerate) {
+    const toolResult = await executeTool('generate_copy', directGenerate);
+    saveMessage(sessionId, 'assistant', toolResult);
+    onChunk(toolResult);
+    onDone();
+    return;
+  }
 
   const history = loadHistory(sessionId);
   // Remove the last message (the one we just saved) since we'll send it as the current message
