@@ -1,8 +1,10 @@
 import { SchemaType, FunctionDeclaration } from '@google/generative-ai';
-import { getCars, getStats, setPoStatus } from './carInventory';
-import { generateAllCopies, generateCopyWithMeta, setUserPreference, PLATFORMS } from './copyGenerator';
+import { clearOwnerOverride, getCars, getStats, setOwnerOverride, setPoStatus, syncFromSheet } from './carInventory';
+import { generateAllCopies, generateCopyWithMeta, getCopies, resolveOwner, setUserPreference, PLATFORMS } from './copyGenerator';
 import { CarRecord } from '../lib/sheets/types';
 import { loadPlatformPrompt, savePlatformPrompt, resetPlatformPrompt } from '../prompts/promptLoader';
+import { getLatestPhotoAnalysis, getVehicleAnalysis } from './vehicleAnalysis';
+import db from '../db/connection';
 
 /** Tool definitions for Gemini function calling */
 export const toolDeclarations: FunctionDeclaration[] = [
@@ -73,6 +75,35 @@ export const toolDeclarations: FunctionDeclaration[] = [
         content: { type: SchemaType.STRING, description: 'action 為 update 時，完整的新 prompt 內容' },
       },
       required: ['platform', 'action'],
+    },
+  },
+  {
+    name: 'sync_sheet',
+    description: '立即重新同步 Google Sheets 車輛資料，當 owner、狀態或最新車輛資料可能過期時可使用',
+    parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+  {
+    name: 'get_generation_readiness',
+    description: '檢查某台車目前是否適合生成文案，列出 owner、待確認欄位、照片分析、8891 blockers 等阻擋因素',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        item: { type: SchemaType.STRING, description: '車輛編號' },
+      },
+      required: ['item'],
+    },
+  },
+  {
+    name: 'resolve_owner',
+    description: '查看或處理 owner 對應。可檢查目前 owner 狀態、設定 owner override、或清除 override 改回同步 owner',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        item: { type: SchemaType.STRING, description: '車輛編號' },
+        action: { type: SchemaType.STRING, description: '動作：check（檢查）、set_override（指定 owner）、clear_override（清除 override）' },
+        owner: { type: SchemaType.STRING, description: 'action 為 set_override 時，指定的 english_name' },
+      },
+      required: ['item', 'action'],
     },
   },
 ];
@@ -190,6 +221,96 @@ export async function executeTool(name: string, args: any): Promise<string> {
         return `已重置【${platform}】Prompt 為預設值。\n\n${restored}`;
       }
       return 'action 必須是 view、update 或 reset';
+    }
+
+    case 'sync_sheet': {
+      const count = await syncFromSheet();
+      return `已重新同步 Google Sheets，現有 ${count} 台車。`;
+    }
+
+    case 'get_generation_readiness': {
+      if (!args.item) return '需要提供車輛編號。';
+      const allCars = await getCars();
+      const car = allCars.find(c => c.item === args.item);
+      if (!car) return `找不到車輛 ${args.item}`;
+
+      const owner = resolveOwner(car.owner);
+      const analysis = getVehicleAnalysis(car.item);
+      const photo = getLatestPhotoAnalysis(car.item);
+      const copies = getCopies(car.item);
+      const postHelper = copies.find(copy => copy.platform === '8891');
+      const analysisReady = Boolean(analysis && analysis.status !== 'pending');
+      const photoReady = Boolean(photo);
+      const analysisState = analysis ? analysis.status : 'missing';
+
+      let result = `【${car.item} 生成前檢查】\n`;
+      result += `車輛：${car.year} ${car.brand} ${car.model}\n`;
+      result += `目前 owner：${car.owner || '(空白)'}\n`;
+      result += `owner 狀態：${owner.status}\n`;
+      if (owner.matches.length > 0) {
+        result += `匹配結果：${owner.matches.map(match => `${match.english_name}/${match.name}`).join('、')}\n`;
+      }
+      result += `基礎分析待確認：${analysis?.reviewHints.length || 0} 項\n`;
+      result += `照片分析待確認：${photo?.reviewHints.length || 0} 項\n`;
+      result += `照片建議描述：${photo?.suggestedCopyLines.length || 0} 項\n`;
+      result += `基礎分析：${analysisState === 'missing' ? '尚未建立' : analysisState}\n`;
+      result += `照片分析：${photoReady ? '已有資料' : '尚未分析'}\n`;
+      if (postHelper) {
+        result += `8891 驗證：${postHelper.validation_status}（error=${postHelper.validation_error_count}, warning=${postHelper.validation_warning_count}）\n`;
+      }
+
+      if (owner.status !== 'resolved') {
+        result += '\n建議：先同步資料；若仍無法唯一匹配，再指定 owner override。';
+      } else if (!analysisReady) {
+        result += '\n建議：先跑基礎分析，再生成文案。';
+      } else if (postHelper?.validation_status === 'error') {
+        result += '\n建議：先修正 8891 阻塞問題，再視需要重新生成。';
+      } else if ((analysis?.reviewHints.length || 0) > 0 || (photo?.reviewHints.length || 0) > 0) {
+        result += '\n建議：可先生成，但要留意仍有待確認欄位。';
+      } else {
+        result += '\n目前可直接生成。';
+      }
+      return result;
+    }
+
+    case 'resolve_owner': {
+      if (!args.item || !args.action) return '需要提供 item 與 action。';
+      const allCars = await getCars();
+      const car = allCars.find(c => c.item === args.item);
+      if (!car) return `找不到車輛 ${args.item}`;
+
+      if (args.action === 'check') {
+        const resolution = resolveOwner(car.owner);
+        let result = `【${car.item} owner 檢查】\n目前 owner：${car.owner || '(空白)'}\n狀態：${resolution.status}`;
+        if (resolution.matches.length > 0) {
+          result += `\n匹配：${resolution.matches.map(match => `${match.english_name}/${match.name}`).join('、')}`;
+        }
+        if (resolution.status !== 'resolved') {
+          result += '\n可先用 sync_sheet 更新資料，必要時再用 set_override 指定 owner。';
+        }
+        return result;
+      }
+
+      if (args.action === 'set_override') {
+        if (!args.owner) return 'set_override 需要提供 owner（english_name）。';
+        const validOwner = db.prepare('SELECT name, english_name FROM team_members WHERE is_active = 1 AND english_name = ?').get(String(args.owner).trim()) as any;
+        if (!validOwner) {
+          return `owner 無效。請使用有效 english_name。`;
+        }
+        const success = setOwnerOverride(args.item, args.owner);
+        return success
+          ? `已為 ${args.item} 指定 owner override = ${args.owner}`
+          : `無法為 ${args.item} 設定 owner override`;
+      }
+
+      if (args.action === 'clear_override') {
+        const success = clearOwnerOverride(args.item);
+        return success
+          ? `已清除 ${args.item} 的 owner override，改回使用同步 owner。`
+          : `${args.item} 目前沒有 owner override。`;
+      }
+
+      return 'action 必須是 check、set_override 或 clear_override';
     }
 
     case 'remember_preference': {

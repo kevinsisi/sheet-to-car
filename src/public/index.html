@@ -539,6 +539,16 @@
       <div class="bg-white dark:bg-gray-800 rounded-lg shadow flex-1 flex flex-col overflow-hidden">
         <!-- Chat messages -->
         <div class="flex-1 overflow-y-auto p-4 chat-scroll" id="chatMessages">
+          <div x-show="chatMessages.length === 0 && !chatStreaming" class="mb-4 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4 text-sm">
+            <div class="font-medium text-blue-800 dark:text-blue-300 mb-2">不知道怎麼用助手時，可以直接這樣問</div>
+            <div class="text-blue-700 dark:text-blue-200 space-y-1 text-xs">
+              <div>• 幫我看 T27 現在能不能生成，卡在哪</div>
+              <div>• 先同步資料，再檢查 A3 為什麼不能生成</div>
+              <div>• 幫我查哪些車還沒 PO</div>
+              <div>• 幫我看 8891 prompt 現在是什麼</div>
+              <div>• 幫我把 A3 指定成 James 再重試生成</div>
+            </div>
+          </div>
           <template x-for="(msg, i) in chatMessages" :key="i">
             <div :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'" class="mb-3">
               <div :class="msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'"
@@ -556,11 +566,13 @@
 
         <!-- Quick actions -->
         <div class="px-4 py-2 border-t dark:border-gray-700 flex gap-2 flex-wrap">
-          <button @click="sendChat('統計車子')" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-gray-600">統計車子</button>
-          <button @click="sendChat('哪些車還沒PO？')" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-gray-600">未PO清單</button>
-          <button @click="sendChat('今天新到幾台？')" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-gray-600">新到貨</button>
-          <button @click="sendChat('庫存品牌分佈')" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-gray-600">品牌分佈</button>
-          <button @click="newChat()" class="px-3 py-1 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full text-xs hover:bg-red-100 dark:hover:bg-red-900/50 ml-auto">新對話</button>
+          <button @click="sendChat('統計車子')" :disabled="chatStreaming" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50">統計車子</button>
+          <button @click="sendChat('哪些車還沒PO？')" :disabled="chatStreaming" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50">未PO清單</button>
+          <button @click="sendChat('今天新到幾台？')" :disabled="chatStreaming" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50">新到貨</button>
+          <button @click="sendChat('庫存品牌分佈')" :disabled="chatStreaming" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50">品牌分佈</button>
+          <button @click="sendChat('幫我檢查 T27 現在能不能生成')" :disabled="chatStreaming" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50">生成前檢查</button>
+          <button @click="sendChat('先同步資料，再檢查 A3 為什麼不能生成')" :disabled="chatStreaming" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50">同步後檢查</button>
+          <button @click="newChat()" :disabled="chatStreaming" class="px-3 py-1 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full text-xs hover:bg-red-100 dark:hover:bg-red-900/50 ml-auto disabled:opacity-50">新對話</button>
         </div>
 
         <!-- Input -->
