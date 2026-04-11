@@ -697,6 +697,23 @@ function buildPrompt(car: CarRecord, platform: Platform, inputs: GenerationInput
     }
   }
 
+  if (vehicleContext.photoVisibleFindings.length > 0 || vehicleContext.photoSuggestedLines.length > 0) {
+    prompt += `\n\n## 照片分析可用描述（可保守融入主文案，不可擴寫成未確認規格）`;
+    const seenPhotoLines = new Set();
+    for (const finding of vehicleContext.photoVisibleFindings) {
+      const normalized = `照片可見：${finding}`.replace(/\s+/g, ' ').trim();
+      if (seenPhotoLines.has(normalized)) continue;
+      seenPhotoLines.add(normalized);
+      prompt += `\n- ${normalized}`;
+    }
+    for (const line of vehicleContext.photoSuggestedLines) {
+      const normalized = String(line || '').replace(/\s+/g, ' ').trim();
+      if (!normalized || seenPhotoLines.has(normalized)) continue;
+      seenPhotoLines.add(normalized);
+      prompt += `\n- ${normalized}`;
+    }
+  }
+
   if (vehicleContext.pendingReviewFields.length > 0) {
     prompt += `\n\n## 尚未確認欄位（不可寫成已確認事實）\n- ${vehicleContext.pendingReviewFields.join('、')}`;
   }

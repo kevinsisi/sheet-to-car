@@ -40,6 +40,8 @@ export interface PendingVehicleAnalysisItem extends VehicleAnalysisRecord {
 export interface ConfirmedVehicleContext {
   confirmedHighlights: string[];
   confirmedPhotoFindings: string[];
+  photoVisibleFindings: string[];
+  photoSuggestedLines: string[];
   pendingReviewFields: string[];
 }
 
@@ -398,6 +400,8 @@ export function getConfirmedVehicleContext(item: string): ConfirmedVehicleContex
   return {
     confirmedHighlights: baseline,
     confirmedPhotoFindings: photo,
+    photoVisibleFindings: Array.from(new Set(photoAnalysis?.findings || [])),
+    photoSuggestedLines: Array.from(new Set(photoAnalysis?.suggestedCopyLines || [])),
     pendingReviewFields: Array.from(new Set([
       ...(baseAnalysis?.reviewHints || []).map(hint => hint.field),
       ...(photoAnalysis?.reviewHints || []).map(hint => hint.field),
