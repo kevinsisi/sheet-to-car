@@ -416,6 +416,26 @@ function parsePrice(input: string): number {
   return value ?? 0;
 }
 
+function sanitizeBrand(value: string): string {
+  return String(value || '')
+    .replace(/[（(]([^)）]{1,20})[)）]/g, (full, inner) => {
+      const text = String(inner || '').trim();
+      const looksLikeMetadata = /^原.+/.test(text)
+        || /^\d{1,4}$/.test(text)
+        || /^[ABPT]\d{1,4}$/i.test(text)
+        || /^(TW|JP|KR|韓國|日本|台灣)$/.test(text);
+      return looksLikeMetadata ? '' : full;
+    })
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function sanitizeModel(value: string): string {
+  return String(value || '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 function normalizeTransmission(value?: string): 'automatic' | 'manual' | 'cvt' | 'dct' | undefined {
   const text = (value || '').toLowerCase();
   if (!text) return undefined;
@@ -471,10 +491,12 @@ function pickConfirmedValue(fieldMap: Record<string, string[]>, ...keys: string[
 
 function build8891DraftJson(car: CarRecord, member: TeamMember, vinDecode: VinDecodeRecord | null): string {
   const confirmed = getConfirmedVehicleFieldMap(car.item);
+  const cleanBrand = sanitizeBrand(car.brand || '');
+  const cleanModel = sanitizeModel(car.model || '');
   const draft = {
     basic: {
-      brand: car.brand || vinDecode?.make || '',
-      model: car.model || vinDecode?.model || '',
+      brand: cleanBrand || car.brand || vinDecode?.make || '',
+      model: cleanModel || vinDecode?.model || '',
       year: parseFirstInteger(car.year || vinDecode?.year || '') || 2020,
       mileage: parseMileage(car.mileage),
       price: 0,
@@ -492,7 +514,7 @@ function build8891DraftJson(car: CarRecord, member: TeamMember, vinDecode: VinDe
       ),
       bodyType: normalizeBodyType(
         pickConfirmedValue(confirmed, 'specs.bodyType') || vinDecode?.bodyClass,
-        car.model,
+        cleanModel || car.model,
       ),
       doors: parseFirstInteger(pickConfirmedValue(confirmed, 'specs.doors') || vinDecode?.doors || ''),
       seats: parseFirstInteger(pickConfirmedValue(confirmed, 'specs.seats') || ''),
@@ -547,6 +569,8 @@ function buildPrompt(car: CarRecord, platform: Platform, inputs: GenerationInput
   const contactBlock = buildContactBlock(inputs.member);
   const skills = getPlatformSkills(platform);
   const { prefs, vehicleContext, vinDecode } = inputs;
+  const cleanBrand = sanitizeBrand(car.brand || '') || car.brand;
+  const cleanModel = sanitizeModel(car.model || '');
 
   let prompt = loadPlatformPrompt(platform);
 
@@ -573,9 +597,9 @@ function buildPrompt(car: CarRecord, platform: Platform, inputs: GenerationInput
 
   prompt += `\n\n## 車輛資料
 - 編號: ${car.item}
-- 品牌: ${car.brand}
+- 品牌: ${cleanBrand}
 - 年式: ${car.year}
-- 車型: ${car.model}
+- 車型: ${cleanModel || car.model}
 - VIN: ${car.vin || '未提供'}
 - 里程: ${car.mileage || '未提供'}
 - 車況: ${car.condition || '未提供'}
