@@ -17,6 +17,7 @@ router.post('/', (req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Session-Id', sid);
+  res.flushHeaders();
 
   processChat(
     sid,

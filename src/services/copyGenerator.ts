@@ -20,6 +20,12 @@ interface TeamMember {
   aliases?: string;
 }
 
+export interface OwnerResolutionResult {
+  status: 'resolved' | 'missing' | 'ambiguous';
+  ownerTokens: string[];
+  matches: Array<Pick<TeamMember, 'name' | 'english_name'>>;
+}
+
 export interface CopyReviewHint {
   field: string;
   reason: string;
@@ -60,12 +66,37 @@ function getTeamMembers(): TeamMember[] {
 }
 
 function findMemberByOwner(owner: string): TeamMember | null {
+  const matches = findMembersByOwner(owner);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function findMembersByOwner(owner: string): TeamMember[] {
   const members = getTeamMembers();
   const ownerTokens = tokenizeOwnerIdentifiers(owner);
-  if (ownerTokens.length === 0) return null;
+  if (ownerTokens.length === 0) return [];
+  return members.filter(member => isOwnerMatched(owner, member));
+}
 
-  const matches = members.filter(member => isOwnerMatched(owner, member));
-  return matches.length === 1 ? matches[0] : null;
+export function resolveOwner(owner: string): OwnerResolutionResult {
+  const ownerTokens = tokenizeOwnerIdentifiers(owner);
+  if (ownerTokens.length === 0) {
+    return { status: 'missing', ownerTokens: [], matches: [] };
+  }
+
+  const matches = findMembersByOwner(owner).map(member => ({
+    name: member.name,
+    english_name: member.english_name,
+  }));
+
+  if (matches.length === 1) {
+    return { status: 'resolved', ownerTokens, matches };
+  }
+
+  return {
+    status: matches.length === 0 ? 'missing' : 'ambiguous',
+    ownerTokens,
+    matches,
+  };
 }
 
 function isOwnerMatched(owner: string, member: TeamMember): boolean {

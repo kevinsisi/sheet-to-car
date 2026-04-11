@@ -119,7 +119,11 @@ export async function processChat(
 
     saveMessage(sessionId, 'assistant', fullResponse);
     onDone();
-  }).catch(onError);
+  }).catch((err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    saveMessage(sessionId, 'assistant', `Error: ${message}`);
+    onError(err instanceof Error ? err : new Error(message));
+  });
 }
 
 /** Get chat history for a session */

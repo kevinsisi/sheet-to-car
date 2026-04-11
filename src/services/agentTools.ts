@@ -108,6 +108,23 @@ export const toolDeclarations: FunctionDeclaration[] = [
   },
 ];
 
+function formatOwnerResolutionGuidance(item: string, ownerValue: string, resolution: ReturnType<typeof resolveOwner>): string {
+  let result = `【${item} 無法直接生成文案】\n`;
+  result += `目前 owner：${ownerValue || '(空白)'}\n`;
+  result += `owner 狀態：${resolution.status}`;
+
+  if (resolution.matches.length > 0) {
+    result += `\n匹配：${resolution.matches.map(match => `${match.english_name}/${match.name}`).join('、')}`;
+  }
+
+  result += '\n\n建議下一步：';
+  result += '\n1. 先用 get_generation_readiness 檢查整體阻擋因素';
+  result += '\n2. 用 resolve_owner 的 check 查看 owner 狀態';
+  result += '\n3. 若資料可能已過期，先執行 sync_sheet';
+  result += '\n4. 若仍無法唯一匹配，再用 resolve_owner 的 set_override 指定正確 english_name';
+  return result;
+}
+
 /** Execute a tool call and return the result */
 export async function executeTool(name: string, args: any): Promise<string> {
   switch (name) {
@@ -184,6 +201,11 @@ export async function executeTool(name: string, args: any): Promise<string> {
       const allCars = await getCars();
       const car = allCars.find(c => c.item === args.item);
       if (!car) return `找不到車輛 ${args.item}`;
+
+      const ownerResolution = resolveOwner(car.owner);
+      if (ownerResolution.status !== 'resolved') {
+        return formatOwnerResolutionGuidance(car.item, car.owner, ownerResolution);
+      }
 
       if (args.platform) {
         const generated = await generateCopyWithMeta(car, args.platform);
