@@ -11,3 +11,6 @@ get-token.js
 
 # Claude Code worktree residuals
 .claude/
+
+# Local AI review artifacts
+.ai-review/

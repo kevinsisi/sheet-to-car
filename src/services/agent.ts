@@ -31,6 +31,11 @@ interface DirectGenerateIntent {
   platform?: string;
 }
 
+interface MultiPlatformGenerateIntent {
+  item: string;
+  platforms: string[];
+}
+
 const SUPPORTED_PLATFORM_ALIASES = ['官網', 'website', 'facebook', 'fb', '8891', 'json', '全平台', '全部文案', '全部平台', 'all platform', 'all copy'];
 
 function extractItemCode(text: string): string | null {
@@ -49,6 +54,24 @@ function detectPlatform(text: string): string | undefined {
   if (raw.includes('Facebook') || raw.includes('facebook') || raw.includes('FB') || lower.includes('fb')) return 'Facebook';
   if (raw.includes('8891') || lower.includes('json')) return '8891';
   return undefined;
+}
+
+function detectPlatforms(text: string): string[] {
+  const raw = String(text || '');
+  const lower = raw.toLowerCase();
+  const platforms: string[] = [];
+
+  if (raw.includes('官網') || lower.includes('website') || lower.includes('web copy')) {
+    platforms.push('官網');
+  }
+  if (raw.includes('Facebook') || raw.includes('facebook') || raw.includes('FB') || lower.includes('fb')) {
+    platforms.push('Facebook');
+  }
+  if (raw.includes('8891') || lower.includes('json')) {
+    platforms.push('8891');
+  }
+
+  return [...new Set(platforms)];
 }
 
 function countMentionedPlatforms(text: string): number {
@@ -73,10 +96,37 @@ function hasOneOffGenerationConstraints(text: string): boolean {
   return ['語氣', '不要', '改成', '風格', '強調', '避免', '成熟', '活潑', '別提', '加上', 'tone', 'style', 'avoid', 'mention'].some(token => String(text || '').includes(token) || String(text || '').toLowerCase().includes(token));
 }
 
+function mentionsCopyArtifact(text: string): boolean {
+  const raw = String(text || '');
+  const lower = raw.toLowerCase();
+  return ['文案', 'copy', 'json'].some(token => raw.includes(token) || lower.includes(token));
+}
+
+function hasDirectCommandTone(text: string): boolean {
+  const raw = String(text || '').trim();
+  const lower = raw.toLowerCase();
+  return ['幫我', '請', '直接', 'generate', 'create'].some(token => raw.includes(token) || lower.includes(token));
+}
+
+function isExploratoryGenerationRequest(text: string): boolean {
+  const raw = String(text || '');
+  const lower = raw.toLowerCase();
+  return ['先比較', '先討論', '方向', '怎麼生成', '怎麼寫', 'how to', 'compare'].some(token => raw.includes(token) || lower.includes(token));
+}
+
+function isGeneratedToolResult(result: string): boolean {
+  return String(result || '').startsWith('已生成 ');
+}
+
 function isGenerateRequest(text: string): boolean {
   const raw = String(text || '');
   const lower = raw.toLowerCase();
-  return ['生成', '產生', '出文案', '產出', 'generate', 'create'].some(token => raw.includes(token) || lower.includes(token));
+  if (['生成', '產生', '出文案', '產出', 'generate', 'create'].some(token => raw.includes(token) || lower.includes(token))) {
+    return true;
+  }
+
+  // Support short command forms like "B165 直接出 FB 文案" without broadening to arbitrary "出..." text.
+  return /(?:^|\s)出\s*(?:fb|facebook|官網|website|web copy|8891|json|全部文案|全部平台|全平台|all platform|all copy|文案)/i.test(raw);
 }
 
 function isAffirmativeFollowup(text: string): boolean {
@@ -105,6 +155,29 @@ function parseDirectGenerateIntent(userMessage: string): DirectGenerateIntent | 
     item,
     platform: detectPlatform(text),
   };
+}
+
+function parseMultiPlatformGenerateIntent(userMessage: string): MultiPlatformGenerateIntent | null {
+  const text = String(userMessage || '').trim();
+  const lower = text.toLowerCase();
+  if (!isGenerateRequest(text)) return null;
+  if (!mentionsCopyArtifact(text)) return null;
+  if (!hasDirectCommandTone(text)) return null;
+  if (isExploratoryGenerationRequest(text)) return null;
+  if (/[?？嗎]$/.test(text) || text.includes('能不能') || text.includes('可以直接生成')) return null;
+  if (mentionsUnsupportedPlatform(text)) return null;
+  if (hasOneOffGenerationConstraints(text)) return null;
+  if (text.includes('全平台') || text.includes('全部文案') || text.includes('全部平台') || lower.includes('all platform') || lower.includes('all copy')) {
+    return null;
+  }
+
+  const item = extractItemCode(text);
+  if (!item) return null;
+
+  const platforms = detectPlatforms(text);
+  if (platforms.length < 2) return null;
+
+  return { item, platforms };
 }
 
 function parseOwnerCheckIntent(userMessage: string): { item: string } | null {
@@ -149,6 +222,56 @@ async function completeRoutedResponse(
     const toolResult = await run();
     saveMessage(sessionId, 'assistant', toolResult);
     onChunk(toolResult);
+    onDone();
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    saveMessage(sessionId, 'assistant', `Error: ${message}`);
+    onError(err instanceof Error ? err : new Error(message));
+    return true;
+  }
+}
+
+async function completeMultiPlatformRoutedResponse(
+  sessionId: string,
+  item: string,
+  platforms: string[],
+  onChunk: (text: string) => void,
+  onDone: () => void,
+  onError: (err: Error) => void,
+): Promise<boolean> {
+  try {
+    const sections: string[] = [];
+    let successCount = 0;
+    let failureCount = 0;
+    for (const platform of platforms) {
+      try {
+        const toolResult = await executeTool('generate_copy', { item, platform });
+        if (isGeneratedToolResult(toolResult)) {
+          sections.push(toolResult);
+          successCount += 1;
+        } else {
+          if (!sections.includes(toolResult)) {
+            sections.push(toolResult);
+          }
+          failureCount += 1;
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        sections.push(`【${platform}】\nError: ${message}`);
+        failureCount += 1;
+      }
+    }
+
+    const combined = sections.join('\n\n');
+    saveMessage(sessionId, 'assistant', combined);
+    if (combined) {
+      onChunk(combined);
+    }
+    if (successCount === 0 && failureCount > 0) {
+      onError(new Error(`Failed to generate requested platforms: ${platforms.join(', ')}`));
+      return true;
+    }
     onDone();
     return true;
   } catch (err) {
@@ -231,6 +354,19 @@ export async function processChat(
   const readinessCheck = parseReadinessIntent(userMessage);
   if (readinessCheck) {
     await completeRoutedResponse(sessionId, () => executeTool('get_generation_readiness', { item: readinessCheck.item }), onChunk, onDone, onError);
+    return;
+  }
+
+  const multiPlatformGenerate = parseMultiPlatformGenerateIntent(userMessage);
+  if (multiPlatformGenerate) {
+    await completeMultiPlatformRoutedResponse(
+      sessionId,
+      multiPlatformGenerate.item,
+      multiPlatformGenerate.platforms,
+      onChunk,
+      onDone,
+      onError,
+    );
     return;
   }
 

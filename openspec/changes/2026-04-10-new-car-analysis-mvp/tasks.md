@@ -12,3 +12,4 @@
 - [x] 使用者確認後將分析結果進一步回寫到文案與 8891/post-helper 流程
 - [x] 使用者可在接受時選擇補充既有特徵或覆蓋同欄位既有特徵
 - [x] AI chat 對直接生成 / owner 檢查 / readiness 問句加上 deterministic routing 與邊界防呆
+- [x] AI chat 補強短句命令型 direct generation 與明確多平台 direct generation，避免口頭承諾但未真正輸出內容
