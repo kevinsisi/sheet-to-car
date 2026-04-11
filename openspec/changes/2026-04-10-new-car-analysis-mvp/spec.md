@@ -21,6 +21,7 @@
 - Dashboard 應集中列出有 8891 阻塞問題的車，並支援一鍵跳到對應車輛處理。
 - 前端應在使用者第一次打開新版本時顯示版本更新提示，內容由 changelog 資料驅動，而不是寫死在 modal 模板中。
 - 全部生成文案時，平台失敗不得抹掉已成功的平台；API 與 UI 必須回報 per-platform success/error，讓使用者只重試失敗平台。
+- AI chat 對於明確的直接生成、owner 檢查、生成前 readiness 問句應優先走 deterministic routing；但不應攔截帶額外文案要求、未支援平台、僅詢問可不可生成、或多平台混合指定的訊息。
 
 ## Success Criteria
 - [x] 新車同步後會自動建立 baseline analysis。
