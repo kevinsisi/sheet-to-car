@@ -928,7 +928,7 @@ function app() {
       this.clearExpandedState();
       const body = {};
       if (useSelected && this.selectedItems.size > 0) {
-        body.items = [...this.selectedItems];
+        body.selectedItems = [...this.selectedItems];
       }
       try {
         const resp = await fetch(`/api/copies/batch-generate?limit=${this.batchLimit}`, {

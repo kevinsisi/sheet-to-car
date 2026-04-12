@@ -6,7 +6,7 @@ import {
   setUserPreference, getAllPreferences, getTeamMembers, PLATFORMS,
   getPlatformPrompts, getCopyById,
 } from '../services/copyGenerator';
-import { getKeyCount } from '../services/geminiKeys';
+import { assignBatchKeys, getKeyCount } from '../services/geminiKeys';
 import db from '../db/connection';
 import { getBuiltinPrompt } from '../prompts/promptLoader';
 
@@ -65,7 +65,7 @@ router.post('/batch-generate', async (req: Request, res: Response) => {
   const keys = getKeyCount();
   const maxByKeys = Math.max(1, Math.min(Math.floor(keys / 3), 20));
   const limit = Math.min(parseInt(req.query.limit as string) || 5, maxByKeys);
-  const items: string[] = req.body?.items || [];
+  const items: string[] = req.body?.selectedItems || req.body?.items || [];
 
   batchTask = { running: true, done: 0, total: 0, current: '', errors: [], startedAt: new Date().toISOString() };
 
@@ -82,14 +82,16 @@ router.post('/batch-generate', async (req: Request, res: Response) => {
 
     const totalAvailable = inStock.filter(c => getCopies(c.item).length === 0).length;
     batchTask.total = needGen.length;
+    const assignedKeys = assignBatchKeys(Math.max(1, needGen.length));
 
     res.write(`data: ${JSON.stringify({ total: needGen.length, totalAvailable, phase: 'scan' })}\n\n`);
 
-    for (const car of needGen) {
+    for (const [index, car] of needGen.entries()) {
       try {
         batchTask.current = `${car.item} ${car.brand} ${car.model}`;
         res.write(`data: ${JSON.stringify({ item: car.item, brand: car.brand, model: car.model, status: 'generating', done: batchTask.done, total: needGen.length })}\n\n`);
-        const generated = await generateAllCopies(car);
+        const preferredApiKey = assignedKeys.length > 0 ? assignedKeys[index % assignedKeys.length] : undefined;
+        const generated = await generateAllCopies(car, { preferredApiKey });
         batchTask.done++;
         const failedPlatforms = Object.keys(generated.errors);
         if (failedPlatforms.length > 0) {

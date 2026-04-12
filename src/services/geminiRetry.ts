@@ -11,13 +11,14 @@ interface RetryOptions {
   maxRetries?: number;
   callType?: string;
   projectId?: string;
+  preferredApiKey?: string;
 }
 
 export async function withGeminiRetry<T>(
   fn: (apiKey: string) => Promise<T>,
   options?: RetryOptions
 ): Promise<T> {
-  const initialKey = getGeminiApiKey();
+  const initialKey = options?.preferredApiKey || getGeminiApiKey();
   if (!initialKey) throw new Error('No Gemini API key available');
 
   let currentKey = initialKey;

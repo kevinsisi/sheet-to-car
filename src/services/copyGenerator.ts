@@ -794,7 +794,11 @@ function buildPrompt(car: CarRecord, platform: Platform, inputs: GenerationInput
 }
 
 /** Generate copy for a single platform */
-export async function generateCopyWithMeta(car: CarRecord, platform: Platform): Promise<GeneratedCopyResult> {
+export async function generateCopyWithMeta(
+  car: CarRecord,
+  platform: Platform,
+  options: { preferredApiKey?: string } = {},
+): Promise<GeneratedCopyResult> {
   const inputs = await buildGenerationInputs(car);
   const skills = getPlatformSkills(platform);
 
@@ -863,8 +867,12 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
   };
 }
 
-export async function generateCopy(car: CarRecord, platform: Platform): Promise<string> {
-  return (await generateCopyWithMeta(car, platform)).content;
+export async function generateCopy(
+  car: CarRecord,
+  platform: Platform,
+  options: { preferredApiKey?: string } = {},
+): Promise<string> {
+  return (await generateCopyWithMeta(car, platform, options)).content;
 }
 
 function pruneDraftVersions(item: string, platform: Platform, keep = 3): number {
@@ -887,7 +895,10 @@ function pruneDraftVersions(item: string, platform: Platform, keep = 3): number 
 }
 
 /** Generate copies for all platforms */
-export async function generateAllCopies(car: CarRecord): Promise<{
+export async function generateAllCopies(
+  car: CarRecord,
+  options: { preferredApiKey?: string } = {},
+): Promise<{
   results: Partial<Record<Platform, string>>;
   errors: Partial<Record<Platform, string>>;
 }> {
@@ -910,7 +921,7 @@ export async function generateAllCopies(car: CarRecord): Promise<{
         }
 
         return text;
-      });
+      }, { preferredApiKey: options.preferredApiKey });
 
       const finalized = platform === '8891'
         ? finalize8891Content(rawResult, car)
