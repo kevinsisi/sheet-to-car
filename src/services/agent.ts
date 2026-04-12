@@ -131,18 +131,20 @@ function isGenerateRequest(text: string): boolean {
   }
 
   // Support short command forms like "B165 直接出 FB 文案" while avoiding broader verbs such as 列出/輸出/帶出.
-  return /(?:^|\s|直接)出\s*(?:fb|facebook|官網|website|web copy|8891|json|全部文案|全部平台|全平台|all platform|all copy|文案)/i.test(raw);
+  return /(?:^|\s|直接|就)出\s*(?:fb|facebook|官網|website|web copy|8891|json|全部文案|全部平台|全平台|all platform|all copy|文案)/i.test(raw)
+    || /(?:^|\s|直接|就)生\s*(?:fb|facebook|官網|website|web copy|8891|json|全部文案|全部平台|全平台|all platform|all copy|文案)/i.test(raw);
 }
 
 function isAffirmativeFollowup(text: string): boolean {
   const normalized = String(text || '').trim().toLowerCase();
-  return ['好', '可以', '確認', '是', 'yes', 'ok', 'okay', 'generate it now', '直接生成', '直接產生'].includes(normalized);
+  return ['好', '可以', '確認', '是', 'yes', 'ok', 'okay', 'generate it now', '直接生成', '直接產生', '直接生', '那就直接生'].includes(normalized);
 }
 
 function parseDirectGenerateIntent(userMessage: string): DirectGenerateIntent | null {
   const text = String(userMessage || '').trim();
   if (!isGenerateRequest(text)) return null;
-  if (/[?？嗎]$/.test(text) || text.includes('能不能') || text.includes('可以直接生成')) return null;
+  const conditionalDirect = text.includes('如果沒問題') || text.includes('沒問題就') || text.includes('if ready');
+  if ((/[?？嗎]$/.test(text) || text.includes('能不能') || text.includes('可以直接生成')) && !conditionalDirect) return null;
   if (mentionsUnsupportedPlatform(text)) return null;
   if (hasOneOffGenerationConstraints(text)) return null;
 
@@ -169,7 +171,8 @@ function parseMultiPlatformGenerateIntent(userMessage: string): MultiPlatformGen
   if (!mentionsCopyArtifact(text)) return null;
   if (!hasDirectCommandTone(text)) return null;
   if (isExploratoryGenerationRequest(text)) return null;
-  if (/[?？嗎]$/.test(text) || text.includes('能不能') || text.includes('可以直接生成')) return null;
+  const conditionalDirect = text.includes('如果沒問題') || text.includes('沒問題就') || text.includes('if ready');
+  if ((/[?？嗎]$/.test(text) || text.includes('能不能') || text.includes('可以直接生成')) && !conditionalDirect) return null;
   if (mentionsUnsupportedPlatform(text)) return null;
   if (hasOneOffGenerationConstraints(text)) return null;
   if (text.includes('全平台') || text.includes('全部文案') || text.includes('全部平台') || lower.includes('all platform') || lower.includes('all copy')) {
