@@ -190,6 +190,7 @@ function parseOwnerCheckIntent(userMessage: string): { item: string } | null {
   const lower = text.toLowerCase();
   const looksLikeOwnerCheck = [
     'owner 怎麼處理',
+    'owner 現在怎麼處理',
     'owner 狀態',
     '檢查 owner',
     'resolve owner',
@@ -229,6 +230,29 @@ function parseCopyInspectionIntent(userMessage: string): CopyInspectionIntent | 
   if (!asksContract) return null;
 
   const platform = detectPlatform(text) || ((text.includes('8891') || lower.includes('json')) ? '8891' : undefined);
+  if (!platform) return null;
+  return { item, platform };
+}
+
+function parseFollowupCopyInspectionIntent(history: ChatMessage[], userMessage: string): CopyInspectionIntent | null {
+  const text = String(userMessage || '').trim();
+  const lower = text.toLowerCase();
+  const asksContract = [
+    'post-helper',
+    'top-level keys',
+    'top level keys',
+    'metadata',
+    'json 結構',
+    'keys',
+  ].some(token => text.includes(token) || lower.includes(token));
+  if (!asksContract) return null;
+
+  const previousMessages = history.slice(0, -1);
+  const lastUser = [...previousMessages].reverse().find(msg => msg.role === 'user');
+  const lastUserText = extractTextParts(lastUser);
+  const item = extractItemCode(lastUserText);
+  if (!item) return null;
+  const platform = detectPlatform(lastUserText) || ((lastUserText.includes('8891') || lastUserText.toLowerCase().includes('json')) ? '8891' : undefined);
   if (!platform) return null;
   return { item, platform };
 }
@@ -383,6 +407,12 @@ export async function processChat(
   const copyInspection = parseCopyInspectionIntent(userMessage);
   if (copyInspection) {
     await completeRoutedResponse(sessionId, () => executeTool('inspect_copy_output', copyInspection), onChunk, onDone, onError);
+    return;
+  }
+
+  const followupInspection = parseFollowupCopyInspectionIntent(history, userMessage);
+  if (followupInspection) {
+    await completeRoutedResponse(sessionId, () => executeTool('inspect_copy_output', followupInspection), onChunk, onDone, onError);
     return;
   }
 
