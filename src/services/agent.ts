@@ -252,7 +252,9 @@ function parseFollowupCopyInspectionIntent(history: ChatMessage[], userMessage: 
   const lastUserText = extractTextParts(lastUser);
   const item = extractItemCode(lastUserText);
   if (!item) return null;
-  const platform = detectPlatform(lastUserText) || ((lastUserText.includes('8891') || lastUserText.toLowerCase().includes('json')) ? '8891' : undefined);
+  const platform = detectPlatform(lastUserText)
+    || ((text.includes('post-helper') || lower.includes('post-helper')) ? '8891' : undefined)
+    || ((lastUserText.includes('8891') || lastUserText.toLowerCase().includes('json')) ? '8891' : undefined);
   if (!platform) return null;
   return { item, platform };
 }
