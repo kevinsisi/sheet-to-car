@@ -36,6 +36,11 @@ interface MultiPlatformGenerateIntent {
   platforms: string[];
 }
 
+interface CopyInspectionIntent {
+  item: string;
+  platform: string;
+}
+
 const SUPPORTED_PLATFORM_ALIASES = ['官網', 'website', 'facebook', 'fb', '8891', 'json', '全平台', '全部文案', '全部平台', 'all platform', 'all copy'];
 
 function extractItemCode(text: string): string | null {
@@ -206,6 +211,28 @@ function parseReadinessIntent(userMessage: string): { item: string } | null {
   return item ? { item } : null;
 }
 
+function parseCopyInspectionIntent(userMessage: string): CopyInspectionIntent | null {
+  const text = String(userMessage || '').trim();
+  const lower = text.toLowerCase();
+  const item = extractItemCode(text);
+  if (!item) return null;
+
+  const asksContract = [
+    'post-helper',
+    'top-level keys',
+    'top level keys',
+    'metadata',
+    'json 結構',
+    'keys',
+  ].some(token => text.includes(token) || lower.includes(token));
+
+  if (!asksContract) return null;
+
+  const platform = detectPlatform(text) || ((text.includes('8891') || lower.includes('json')) ? '8891' : undefined);
+  if (!platform) return null;
+  return { item, platform };
+}
+
 function extractTextParts(message: ChatMessage | undefined): string {
   if (!message) return '';
   return message.parts.map(part => ('text' in part && typeof part.text === 'string' ? part.text : '')).join(' ').trim();
@@ -295,6 +322,8 @@ function parseFollowupGenerateIntent(history: ChatMessage[], userMessage: string
     '是否要直接生成',
     '是否要繼續生成',
     '是否要生成',
+    '需要我現在生成嗎',
+    '需要我直接生成嗎',
     '您確定要現在生成',
     'please confirm generation',
   ].some(token => lastAssistantText.includes(token) || lastAssistantText.toLowerCase().includes(token));
@@ -348,6 +377,12 @@ export async function processChat(
   const ownerCheck = parseOwnerCheckIntent(userMessage);
   if (ownerCheck) {
     await completeRoutedResponse(sessionId, () => executeTool('resolve_owner', { item: ownerCheck.item, action: 'check' }), onChunk, onDone, onError);
+    return;
+  }
+
+  const copyInspection = parseCopyInspectionIntent(userMessage);
+  if (copyInspection) {
+    await completeRoutedResponse(sessionId, () => executeTool('inspect_copy_output', copyInspection), onChunk, onDone, onError);
     return;
   }
 

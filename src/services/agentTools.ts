@@ -106,6 +106,18 @@ export const toolDeclarations: FunctionDeclaration[] = [
       required: ['item', 'action'],
     },
   },
+  {
+    name: 'inspect_copy_output',
+    description: '檢查某台車最新文案的實際輸出內容，可用來確認 8891 / 官網 / Facebook 結構、top-level keys、是否含 metadata、驗證狀態等',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        item: { type: SchemaType.STRING, description: '車輛編號' },
+        platform: { type: SchemaType.STRING, description: '平台：官網、Facebook、8891' },
+      },
+      required: ['item', 'platform'],
+    },
+  },
 ];
 
 function formatOwnerResolutionGuidance(item: string, ownerValue: string, resolution: ReturnType<typeof resolveOwner>): string {
@@ -339,6 +351,43 @@ export async function executeTool(name: string, args: any): Promise<string> {
       }
 
       return 'action 必須是 check、set_override 或 clear_override';
+    }
+
+    case 'inspect_copy_output': {
+      if (!args.item || !args.platform) return '需要提供 item 與 platform。';
+      if (!PLATFORMS.includes(args.platform)) return `平台名稱無效，支援：${PLATFORMS.join('、')}`;
+
+      const copies = getCopies(args.item).filter(copy => copy.platform === args.platform);
+      if (copies.length === 0) {
+        return `${args.item} 目前沒有 ${args.platform} 文案。`;
+      }
+
+      const latest = copies[0];
+      let result = `【${args.item} ${args.platform} 最新文案檢查】\n`;
+      result += `版本：#${latest.id}\n`;
+      result += `狀態：${latest.status}\n`;
+      result += `建立時間：${latest.created_at}\n`;
+
+      if (args.platform !== '8891') {
+        result += '此平台不是 JSON contract 平台，請直接查看文案內容。';
+        return result;
+      }
+
+      try {
+        const parsed = JSON.parse(latest.content);
+        const topLevelKeys = Object.keys(parsed).sort();
+        const exactCoreKeys = ['basic', 'contact', 'listing', 'specs'];
+        const hasMetadata = Object.prototype.hasOwnProperty.call(parsed, 'metadata');
+        const topKeysMatch = JSON.stringify(topLevelKeys) === JSON.stringify(exactCoreKeys);
+
+        result += `top-level keys：${topLevelKeys.join(', ')}\n`;
+        result += `含 metadata：${hasMetadata ? '是' : '否'}\n`;
+        result += `結構符合 8891 prompt contract：${topKeysMatch && !hasMetadata ? '是' : '否'}\n`;
+        result += `post-helper 驗證：${latest.validation_status}（error=${latest.validation_error_count}, warning=${latest.validation_warning_count}）`;
+        return result;
+      } catch {
+        return `${result}內容不是合法 JSON，無法檢查 contract。`;
+      }
     }
 
     case 'remember_preference': {
