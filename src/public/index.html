@@ -271,7 +271,7 @@
                       <button
                         class="text-[10px] leading-none px-1.5 py-0.5 rounded font-medium transition-colors"
                         :class="car[po.field] ? 'bg-green-600 text-white' : 'bg-gray-600 text-gray-300'"
-                        @click="togglePoPlatform(car.item, po.key, po.field)"
+                        @click="showPoPlatformHint(po.label)"
                         x-text="po.label">
                       </button>
                     </template>
@@ -482,6 +482,7 @@
                         <div class="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-700 border-b dark:border-gray-600">
                           <div class="flex items-center gap-2">
                             <span class="font-medium text-sm" x-text="copy.platform"></span>
+                            <span class="text-xs px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300" x-text="copy.versionLabel"></span>
                             <span class="text-xs px-2 py-0.5 rounded"
                               :class="copy.status === '上架' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'"
                               x-text="copy.status"></span>
@@ -489,7 +490,8 @@
                           </div>
                           <div class="flex gap-2">
                             <button @click.stop="copyToClipboard(copy.content)" class="text-blue-600 dark:text-blue-400 hover:text-blue-800 text-xs">複製</button>
-                            <button x-show="copy.status === 'draft'" @click.stop="publishCopy(copy.id)" class="text-green-600 dark:text-green-400 text-xs">上架</button>
+                            <button x-show="copy.status === 'draft' && !(copy.platform === '8891' && copy.validation_status === 'error')" @click.stop="publishCopy(copy.id)" class="text-green-600 dark:text-green-400 text-xs">上架</button>
+                            <span x-show="copy.status === 'draft' && copy.platform === '8891' && copy.validation_status === 'error'" class="text-xs text-red-500 dark:text-red-400">需先修正</span>
                             <button x-show="copy.status === '上架'" @click.stop="unpublishCopy(copy.id)" class="text-yellow-600 dark:text-yellow-400 text-xs">下架</button>
                             <button @click.stop="deleteCopy(copy.id)" class="text-red-500 dark:text-red-400 text-xs">刪除</button>
                           </div>

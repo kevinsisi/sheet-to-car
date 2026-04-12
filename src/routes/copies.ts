@@ -1,10 +1,10 @@
 import { Router, Request, Response } from 'express';
-import { getCars } from '../services/carInventory';
+import { getCars, setPoPlatform } from '../services/carInventory';
 import {
   generateAllCopies, getCopies, generateCopyWithMeta,
   publishCopy, unpublishCopy, deleteCopy, cleanExpiredCopies,
   setUserPreference, getAllPreferences, getTeamMembers, PLATFORMS,
-  getPlatformPrompts,
+  getPlatformPrompts, getCopyById,
 } from '../services/copyGenerator';
 import { getKeyCount } from '../services/geminiKeys';
 import db from '../db/connection';
@@ -21,6 +21,13 @@ function getGenerationLockKey(item: string, platform: string): string {
 function hasActiveGeneration(item: string): boolean {
   return PLATFORMS.some(platform => activeGenerationLocks.has(getGenerationLockKey(item, platform)))
     || activeGenerationLocks.has(getGenerationLockKey(item, '全部'));
+}
+
+function toPoPlatform(platform: string): 'official' | 'facebook' | '8891' | null {
+  if (platform === '官網') return 'official';
+  if (platform === 'Facebook') return 'facebook';
+  if (platform === '8891') return '8891';
+  return null;
 }
 
 // ── Batch task state (in-memory, survives page refresh) ──
@@ -53,6 +60,7 @@ router.post('/batch-generate', async (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
 
   const keys = getKeyCount();
   const maxByKeys = Math.max(1, Math.min(Math.floor(keys / 3), 20));
@@ -109,8 +117,8 @@ router.post('/batch-generate', async (req: Request, res: Response) => {
 });
 
 // POST /api/copies/cleanup
-router.post('/cleanup', (_req: Request, res: Response) => {
-  const count = cleanExpiredCopies();
+router.post('/cleanup', async (_req: Request, res: Response) => {
+  const count = await cleanExpiredCopies();
   return res.json({ cleaned: count });
 });
 
@@ -281,9 +289,23 @@ router.post('/:item/generate', async (req: Request, res: Response) => {
 });
 
 // PATCH /api/copies/:id/publish
-router.patch('/:id/publish', (req: Request, res: Response) => {
+router.patch('/:id/publish', async (req: Request, res: Response) => {
   try {
-    publishCopy(Number(req.params.id));
+    const copyId = Number(req.params.id);
+    const copy = getCopyById(copyId);
+    if (!copy) return res.status(404).json({ error: 'copy not found' });
+
+    if (copy.platform === '8891' && copy.validation_status === 'error') {
+      return res.status(400).json({ error: '8891 文案仍有阻塞問題，不能上架' });
+    }
+
+    const poPlatform = toPoPlatform(copy.platform);
+    if (!poPlatform) return res.status(400).json({ error: 'unsupported copy platform' });
+
+    const success = await setPoPlatform(copy.item, poPlatform, true);
+    if (!success) return res.status(500).json({ error: '同步 PO 平台失敗' });
+
+    publishCopy(copyId);
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -291,9 +313,20 @@ router.patch('/:id/publish', (req: Request, res: Response) => {
 });
 
 // PATCH /api/copies/:id/unpublish
-router.patch('/:id/unpublish', (req: Request, res: Response) => {
+router.patch('/:id/unpublish', async (req: Request, res: Response) => {
   try {
-    unpublishCopy(Number(req.params.id));
+    const copyId = Number(req.params.id);
+    const copy = getCopyById(copyId);
+    if (!copy) return res.status(404).json({ error: 'copy not found' });
+    if (copy.status !== '上架') return res.status(400).json({ error: 'copy is not currently published' });
+
+    const poPlatform = toPoPlatform(copy.platform);
+    if (!poPlatform) return res.status(400).json({ error: 'unsupported copy platform' });
+
+    const success = await setPoPlatform(copy.item, poPlatform, false);
+    if (!success) return res.status(500).json({ error: '同步 PO 平台失敗' });
+
+    unpublishCopy(copyId);
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -301,9 +334,21 @@ router.patch('/:id/unpublish', (req: Request, res: Response) => {
 });
 
 // DELETE /api/copies/:id
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    deleteCopy(Number(req.params.id));
+    const copyId = Number(req.params.id);
+    const copy = getCopyById(copyId);
+    if (!copy) return res.status(404).json({ error: 'copy not found' });
+
+    if (copy.status === '上架') {
+      const poPlatform = toPoPlatform(copy.platform);
+      if (!poPlatform) return res.status(400).json({ error: 'unsupported copy platform' });
+
+      const success = await setPoPlatform(copy.item, poPlatform, false);
+      if (!success) return res.status(500).json({ error: '同步 PO 平台失敗' });
+    }
+
+    deleteCopy(copyId);
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

@@ -44,6 +44,8 @@ app.get('*', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`Sheet-to-Car running on http://localhost:${PORT}`);
   // Clean expired copies every hour
-  setInterval(() => cleanExpiredCopies(), 60 * 60 * 1000);
-  cleanExpiredCopies();
+  setInterval(() => {
+    void cleanExpiredCopies().catch(err => console.error('[copies] cleanup failed:', err.message));
+  }, 60 * 60 * 1000);
+  void cleanExpiredCopies().catch(err => console.error('[copies] cleanup failed:', err.message));
 });

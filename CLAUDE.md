@@ -205,3 +205,4 @@ npm run format:check  # Prettier --check (CI)
 - **AI agent tools** — declare schema in `agentTools.ts`; execute in the `executeTool()` switch; keep declarations and implementations in sync
 - **Row order** — maintain `row_order` from sheet; UI sort order is independent and does not write back
 - **Migrations** — append-only numbered SQL files; never alter existing migration files
+- **Version changelog is mandatory** — this app shows an in-product update log from `src/public/js/app.js` (`CURRENT_APP_VERSION` + `CHANGELOG`). Any user-visible behavior change must update the version number and add a changelog entry in the same change set.

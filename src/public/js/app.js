@@ -1,8 +1,16 @@
 function app() {
   const REQUIRED_COPY_PLATFORMS = 3;
-  const CURRENT_APP_VERSION = '1.6.1';
+  const CURRENT_APP_VERSION = '1.6.2';
   const LAST_SEEN_VERSION_KEY = 'sheet-to-car:last-seen-version';
   const CHANGELOG = [
+    {
+      version: '1.6.2',
+      notes: [
+        '文案生成改成保留每平台最近 3 個版本，重新生成失敗時不再先刪舊結果。',
+        '8891 JSON 會移除多餘 metadata，並更貼近 post-helper 需要的欄位結構。',
+        '文案上架、下架、刪除與到期清理，現在會同步更新表格中的官網 / Facebook / 8891 狀態。',
+      ],
+    },
     {
       version: '1.6.1',
       notes: [
@@ -485,25 +493,13 @@ function app() {
       }
     },
 
-    async togglePoPlatform(item, platform, field) {
-      const car = this.cars.find(c => c.item === item);
-      if (!car) return;
-      const newValue = !car[field];
-      try {
-        const resp = await fetch(`/api/cars/${item}/po-platform`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ platform, value: newValue }),
-        });
-        if (resp.ok) {
-          car[field] = newValue;
-        } else {
-          const err = await resp.json();
-          alert('更新失敗: ' + err.error);
+    showPoPlatformHint(label) {
+      this.copyToast = `請從下方 ${label} 文案卡片操作上架 / 下架，系統會同步更新表格狀態`;
+      setTimeout(() => {
+        if (this.copyToast === `請從下方 ${label} 文案卡片操作上架 / 下架，系統會同步更新表格狀態`) {
+          this.copyToast = '';
         }
-      } catch (err) {
-        alert('更新失敗: ' + err.message);
-      }
+      }, 2500);
     },
 
     // ── Copy Generation ──
@@ -521,7 +517,17 @@ function app() {
       try {
         const resp = await fetch(`/api/copies/${item}`);
         const data = await resp.json();
-        this.expandedCopies = data.copies || [];
+        const versionCounters = {};
+        this.expandedCopies = (data.copies || []).map((copy) => {
+          versionCounters[copy.platform] = (versionCounters[copy.platform] || 0) + 1;
+          return {
+            ...copy,
+            versionNumber: versionCounters[copy.platform],
+            versionLabel: copy.status === '上架'
+              ? '目前上架'
+              : `版本 #${copy.id}`,
+          };
+        });
         const latestCopy = this.expandedCopies[0];
         this.lastGenerationInfo = latestCopy ? {
           platform: latestCopy.platform,
@@ -804,19 +810,46 @@ function app() {
     },
 
     async publishCopy(id) {
-      await fetch(`/api/copies/${id}/publish`, { method: 'PATCH' });
-      await this.loadCopies(this.expandedItem);
+      try {
+        const resp = await fetch(`/api/copies/${id}/publish`, { method: 'PATCH' });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.error || '上架失敗');
+        }
+        await Promise.all([this.loadCopies(this.expandedItem), this.loadCars(true), this.loadCopySummary(), this.load8891ValidationBlockers()]);
+      } catch (err) {
+        this.copyToast = err.message;
+        setTimeout(() => { if (this.copyToast === err.message) this.copyToast = ''; }, 2500);
+      }
     },
 
     async unpublishCopy(id) {
-      await fetch(`/api/copies/${id}/unpublish`, { method: 'PATCH' });
-      await this.loadCopies(this.expandedItem);
+      try {
+        const resp = await fetch(`/api/copies/${id}/unpublish`, { method: 'PATCH' });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.error || '下架失敗');
+        }
+        await Promise.all([this.loadCopies(this.expandedItem), this.loadCars(true), this.loadCopySummary(), this.load8891ValidationBlockers()]);
+      } catch (err) {
+        this.copyToast = err.message;
+        setTimeout(() => { if (this.copyToast === err.message) this.copyToast = ''; }, 2500);
+      }
     },
 
     async deleteCopy(id) {
       if (!confirm('確定刪除？')) return;
-      await fetch(`/api/copies/${id}`, { method: 'DELETE' });
-      await this.loadCopies(this.expandedItem);
+      try {
+        const resp = await fetch(`/api/copies/${id}`, { method: 'DELETE' });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.error || '刪除失敗');
+        }
+        await Promise.all([this.loadCopies(this.expandedItem), this.loadCars(true), this.loadCopySummary(), this.load8891ValidationBlockers()]);
+      } catch (err) {
+        this.copyToast = err.message;
+        setTimeout(() => { if (this.copyToast === err.message) this.copyToast = ''; }, 2500);
+      }
     },
 
     toggleSelect(item) {
@@ -903,14 +936,21 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
+        if (!resp.ok || !resp.body) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.error || '批次生成啟動失敗');
+        }
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
+        let buffer = '';
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
-          const text = decoder.decode(value);
-          for (const line of text.split('\n')) {
-            if (!line.startsWith('data: ')) continue;
+          buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+          const events = buffer.split('\n\n');
+          buffer = events.pop() || '';
+          for (const eventChunk of events) {
+            const line = eventChunk.split('\n').find(part => part.startsWith('data: '));
+            if (!line) continue;
             try {
               const data = JSON.parse(line.slice(6));
               if (data.phase === 'scan') {
@@ -926,6 +966,7 @@ function app() {
               }
             } catch {}
           }
+          if (done) break;
         }
       } catch (err) {
         alert('批次生成失敗: ' + err.message);
@@ -964,18 +1005,23 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message, sessionId: this.sessionId }),
         });
+        if (!resp.ok || !resp.body) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.error || '聊天請求失敗');
+        }
 
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
+        let buffer = '';
 
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
-
-          const text = decoder.decode(value);
-          const lines = text.split('\n');
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
+          buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+          const events = buffer.split('\n\n');
+          buffer = events.pop() || '';
+          for (const eventChunk of events) {
+            const line = eventChunk.split('\n').find(part => part.startsWith('data: '));
+            if (!line) continue;
             try {
               const data = JSON.parse(line.slice(6));
               if (data.done) {
@@ -992,10 +1038,18 @@ function app() {
             } catch {}
           }
 
+          if (done) break;
+
           this.$nextTick(() => {
             const el = document.getElementById('chatMessages');
             if (el) el.scrollTop = el.scrollHeight;
           });
+        }
+
+        if (this.chatStreaming) {
+          this.chatMessages.push({ role: 'assistant', content: this.streamingText || '連線中斷，請再試一次。' });
+          this.streamingText = '';
+          this.chatStreaming = false;
         }
       } catch (err) {
         this.chatMessages.push({ role: 'assistant', content: 'Error: ' + err.message });

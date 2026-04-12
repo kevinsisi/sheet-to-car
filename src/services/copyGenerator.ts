@@ -7,6 +7,7 @@ import { loadPlatformPrompt } from '../prompts/promptLoader';
 import { LoadedSkill, selectSkillsFor8891 } from './skillLoader';
 import { getConfirmedVehicleContext, getConfirmedVehicleFieldMap } from './vehicleAnalysis';
 import { getVinDecodeForCar, VinDecodeRecord } from './vinDecode';
+import { setPoPlatform } from './carInventory';
 
 const PLATFORMS = ['官網', 'Facebook', '8891'] as const;
 export type Platform = typeof PLATFORMS[number];
@@ -225,11 +226,12 @@ function mergePhotoSuggestedLines(platform: Platform, content: string, vehicleCo
 function normalize8891Json(data: any): any {
   if (!data || typeof data !== 'object') return data;
 
-  const normalized = JSON.parse(JSON.stringify(data));
-  normalized.basic = normalized.basic || {};
-  normalized.specs = normalized.specs || {};
-  normalized.contact = normalized.contact || {};
-  normalized.listing = normalized.listing || {};
+  const normalized = {
+    basic: JSON.parse(JSON.stringify(data.basic || {})),
+    specs: JSON.parse(JSON.stringify(data.specs || {})),
+    contact: JSON.parse(JSON.stringify(data.contact || {})),
+    listing: JSON.parse(JSON.stringify(data.listing || {})),
+  } as any;
 
   if (typeof normalized.basic.year === 'string') {
     normalized.basic.year = parseFirstInteger(normalized.basic.year) ?? normalized.basic.year;
@@ -490,9 +492,9 @@ function parseFirstInteger(input: string): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
-function parseMileage(input: string): number {
+function parseMileage(input: string): number | null {
   const raw = (input || '').trim().replace(/,/g, '');
-  if (!raw) return 0;
+  if (!raw) return null;
 
   if (raw.includes('萬')) {
     const value = Number(raw.replace('萬', ''));
@@ -500,7 +502,7 @@ function parseMileage(input: string): number {
   }
 
   const numeric = Number(raw.replace(/[^\d.]/g, ''));
-  return Number.isFinite(numeric) ? Math.round(numeric) : 0;
+  return Number.isFinite(numeric) ? Math.round(numeric) : null;
 }
 
 function parsePrice(input: string): number {
@@ -633,9 +635,9 @@ function build8891DraftJson(car: CarRecord, member: TeamMember, vinDecode: VinDe
     basic: {
       brand: cleanBrand || car.brand || vinDecode?.make || '',
       model: cleanModel || vinDecode?.model || '',
-      year: parseFirstInteger(car.year || vinDecode?.year || '') || 2020,
+      year: parseFirstInteger(car.year || vinDecode?.year || '') ?? null,
       mileage: parseMileage(car.mileage),
-      price: 0,
+      price: null,
     },
     specs: {
       color: car.exteriorColor || undefined,
@@ -675,10 +677,6 @@ function build8891DraftJson(car: CarRecord, member: TeamMember, vinDecode: VinDe
       title: '',
       description: '',
       highlightFeatures: [] as string[],
-    },
-    metadata: {
-      source: 'sheet-to-car',
-      version: '1.5.0',
     },
   };
 
@@ -829,12 +827,6 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
     finalized.content = mergePhotoSuggestedLines(platform, finalized.content, inputs.vehicleContext);
   }
 
-  // Remove existing draft to prevent duplicates
-  db.prepare(`
-    DELETE FROM car_copies 
-    WHERE item = ? AND platform = ? AND status = 'draft'
-  `).run(car.item, platform);
-
   const generationContext = {
     confirmedFeatureCount: inputs.vehicleContext.confirmedHighlights.length + inputs.vehicleContext.confirmedPhotoFindings.length,
     pendingFieldCount: inputs.vehicleContext.pendingReviewFields.length,
@@ -858,6 +850,8 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
     finalized.validationSummary.warningCount,
   );
 
+  pruneDraftVersions(car.item, platform);
+
   return {
     content: finalized.content,
     reviewHints: platform === '8891'
@@ -871,6 +865,25 @@ export async function generateCopyWithMeta(car: CarRecord, platform: Platform): 
 
 export async function generateCopy(car: CarRecord, platform: Platform): Promise<string> {
   return (await generateCopyWithMeta(car, platform)).content;
+}
+
+function pruneDraftVersions(item: string, platform: Platform, keep = 3): number {
+  const publishedRow = db.prepare(
+    "SELECT id FROM car_copies WHERE item = ? AND platform = ? AND status = '上架' ORDER BY datetime(created_at) DESC, id DESC LIMIT 1"
+  ).get(item, platform) as { id: number } | undefined;
+  const keepDraftCount = Math.max(0, keep - (publishedRow ? 1 : 0));
+
+  const result = db.prepare(`
+    DELETE FROM car_copies
+    WHERE id IN (
+      SELECT id FROM car_copies
+      WHERE item = ? AND platform = ? AND status = 'draft'
+      ORDER BY datetime(created_at) DESC, id DESC
+      LIMIT -1 OFFSET ?
+    )
+  `).run(item, platform, keepDraftCount);
+
+  return result.changes;
 }
 
 /** Generate copies for all platforms */
@@ -912,11 +925,6 @@ export async function generateAllCopies(car: CarRecord): Promise<{
       }
 
       db.prepare(`
-        DELETE FROM car_copies 
-        WHERE item = ? AND platform = ? AND status = 'draft'
-      `).run(car.item, platform);
-
-      db.prepare(`
         INSERT INTO car_copies (
           item, platform, content, status, confirmed_feature_count, pending_field_count,
           validation_status, validation_error_count, validation_warning_count
@@ -933,6 +941,8 @@ export async function generateAllCopies(car: CarRecord): Promise<{
         finalized.validationSummary.warningCount,
       );
 
+      pruneDraftVersions(car.item, platform);
+
       results[platform] = finalized.content;
     } catch (err: any) {
       errors[platform] = err.message || '生成失敗';
@@ -945,21 +955,44 @@ export async function generateAllCopies(car: CarRecord): Promise<{
 /** Get existing copies for a car */
 export function getCopies(item: string): Array<{
   id: number; platform: string; content: string; status: string;
-  created_at: string; expires_at: string | null;
+  created_at: string; published_at: string | null; expires_at: string | null;
   confirmed_feature_count: number; pending_field_count: number;
   validation_status: string; validation_error_count: number; validation_warning_count: number;
 }> {
   return db.prepare(
-    'SELECT id, platform, content, status, created_at, expires_at, confirmed_feature_count, pending_field_count, validation_status, validation_error_count, validation_warning_count FROM car_copies WHERE item = ? ORDER BY created_at DESC'
+    'SELECT id, platform, content, status, created_at, published_at, expires_at, confirmed_feature_count, pending_field_count, validation_status, validation_error_count, validation_warning_count FROM car_copies WHERE item = ? ORDER BY datetime(created_at) DESC, id DESC'
   ).all(item) as any[];
+}
+
+export function getCopyById(copyId: number): {
+  id: number; item: string; platform: string; content: string; status: string;
+  created_at: string; published_at: string | null; expires_at: string | null;
+  confirmed_feature_count: number; pending_field_count: number;
+  validation_status: string; validation_error_count: number; validation_warning_count: number;
+} | null {
+  return db.prepare(
+    'SELECT id, item, platform, content, status, created_at, published_at, expires_at, confirmed_feature_count, pending_field_count, validation_status, validation_error_count, validation_warning_count FROM car_copies WHERE id = ?'
+  ).get(copyId) as any || null;
 }
 
 /** Set copy status to 上架 with 7-day expiry */
 export function publishCopy(copyId: number): void {
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  db.prepare(
-    "UPDATE car_copies SET status = '上架', published_at = datetime('now'), expires_at = ? WHERE id = ?"
-  ).run(expiresAt, copyId);
+  const target = getCopyById(copyId);
+  if (!target) {
+    throw new Error('copy not found');
+  }
+
+  const tx = db.transaction((row: NonNullable<typeof target>) => {
+    db.prepare(
+      "UPDATE car_copies SET status = 'draft', published_at = NULL, expires_at = NULL WHERE item = ? AND platform = ? AND id != ? AND status = '上架'"
+    ).run(row.item, row.platform, row.id);
+
+    db.prepare(
+      "UPDATE car_copies SET status = '上架', published_at = datetime('now'), expires_at = datetime('now', '+7 days') WHERE id = ?"
+    ).run(row.id);
+  });
+
+  tx(target);
 }
 
 /** Set copy status back to draft */
@@ -975,14 +1008,37 @@ export function deleteCopy(copyId: number): void {
 }
 
 /** Clean up expired copies (call periodically) */
-export function cleanExpiredCopies(): number {
-  const result = db.prepare(
-    "DELETE FROM car_copies WHERE status = '上架' AND expires_at IS NOT NULL AND expires_at < datetime('now')"
-  ).run();
-  if (result.changes > 0) {
-    console.log(`[copies] Cleaned ${result.changes} expired copies`);
+export async function cleanExpiredCopies(): Promise<number> {
+  const expired = db.prepare(
+    "SELECT id, item, platform FROM car_copies WHERE status = '上架' AND expires_at IS NOT NULL AND datetime(expires_at) < datetime('now')"
+  ).all() as Array<{ id: number; item: string; platform: string }>;
+
+  if (expired.length === 0) {
+    return 0;
   }
-  return result.changes;
+
+  let deleted = 0;
+  for (const row of expired) {
+    let success = false;
+    if (row.platform === '官網') {
+      success = await setPoPlatform(row.item, 'official', false);
+    } else if (row.platform === 'Facebook') {
+      success = await setPoPlatform(row.item, 'facebook', false);
+    } else if (row.platform === '8891') {
+      success = await setPoPlatform(row.item, '8891', false);
+    }
+
+    if (!success) {
+      console.warn(`[copies] Skip expired cleanup for ${row.item} ${row.platform}: failed to sync PO flag`);
+      continue;
+    }
+
+    db.prepare('DELETE FROM car_copies WHERE id = ?').run(row.id);
+    deleted += 1;
+  }
+
+  console.log(`[copies] Cleaned ${deleted} expired copies`);
+  return deleted;
 }
 
 /** Save user preference */
